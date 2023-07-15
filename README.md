@@ -69,7 +69,7 @@ func main() {
 		Username: "username",
 		Password: "password",
 		Prefix:   ".",
-		EnableBG: true
+		EnableBG: true,
 		EnablePM: true,
 		Groups:   []string{"groupchat1", "groupchat2"},
 	}
