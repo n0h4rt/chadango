@@ -33,6 +33,7 @@ type Group struct {
 	Version    [2]int                 // The version of the group.
 	Owner      string                 // The owner of the group.
 	SessionID  string                 // The session ID for the group.
+	UserID     int                    // The user ID for the group.
 	LoggedIn   bool                   // Indicates if the user is logged in to the group.
 	LoginName  string                 // The login name of the user.
 	LoginTime  time.Time              // The time when the user logged in.
@@ -136,6 +137,7 @@ func (g *Group) connect() (err error) {
 	}
 	g.events <- frame
 
+	g.initFields()
 	g.ws.Sustain(g.context)
 	go g.listen()
 	log.Debug().Str("Name", g.Name).Msg("Connected")
@@ -145,22 +147,26 @@ func (g *Group) connect() (err error) {
 // listen listens for incoming messages and events on the WebSocket connection.
 func (g *Group) listen() {
 	var frame string
+	var ok bool
 	var release context.Context
 	for {
 		select {
 		case <-g.context.Done():
 			return
-		case frame = <-g.events:
-			if frame == EndFrame {
+		case frame, ok = <-g.events:
+			if !ok {
 				return
 			}
 			go g.wsOnFrame(frame)
-		case frame = <-g.ws.Events:
-			if frame == EndFrame {
+		case frame, ok = <-g.ws.Events:
+			if !ok {
 				return
 			}
 			go g.wsOnFrame(frame)
-		case release = <-g.takeOver:
+		case release, ok = <-g.takeOver:
+			if !ok {
+				return
+			}
 		inner:
 			for {
 				select {
@@ -168,8 +174,8 @@ func (g *Group) listen() {
 					return
 				case <-release.Done():
 					break inner
-				case frame = <-g.events:
-					if frame == EndFrame {
+				case frame, ok = <-g.events:
+					if !ok {
 						return
 					}
 					go g.wsOnFrame(frame)
@@ -251,13 +257,14 @@ func (g *Group) SyncSendWithTimeout(callback func(string) bool, timeout time.Dur
 	}
 
 	var frame string
+	var ok bool
 	for {
 		select {
 		case <-ctx.Done():
 			return ErrTimeout
-		case frame = <-g.ws.Events:
-			if frame == EndFrame {
-				g.events <- frame
+		case frame, ok = <-g.ws.Events:
+			if !ok {
+				close(g.events)
 				return ErrConnectionClosed
 			}
 			if strings.HasPrefix(frame, "climited") {
@@ -292,8 +299,7 @@ func (g *Group) SendMessage(text string) (msg *Message, err error) {
 		switch head {
 		case "b":
 			g.events <- frame
-			fields := strings.SplitN(data, ":", 5)
-			if msg == nil && fields[3] == g.SessionID[:8] {
+			if msg == nil {
 				message := ParseGroupMessage(data, g)
 				if !message.User.IsSelf {
 					return false
@@ -377,7 +383,7 @@ func (g *Group) SendMessage(text string) (msg *Message, err error) {
 			g.AnonName = "anon0001"
 		}
 		// Same as above, the anonymous seed should not be recalculated for each message sending.
-		text = fmt.Sprintf(`<n%s/>%s`, CreateAnonSeed(g.AnonName, g.SessionID[:8]), text)
+		text = fmt.Sprintf(`<n%d/>%s`, CreateAnonSeed(g.AnonName, g.UserID), text)
 	}
 
 	// Replacing newlines with the `<br/>` tag.
@@ -420,23 +426,22 @@ func (g *Group) GetParticipantsStart() (p *SyncMap[string, *Participant], err er
 			var fields []string
 			var user *User
 			var t time.Time
-			var ts string
 			var participant *Participant
 			for _, entry := range strings.Split(entries, ";") {
 				fields = strings.SplitN(entry, ":", 6)
+				t, _ = ParseTime(fields[1])
+				userID, _ := strconv.Atoi(fields[2])
 				if fields[3] != "None" {
 					user = &User{Name: fields[3]}
 				} else if fields[4] != "None" {
 					user = &User{Name: fields[4], IsAnon: true}
 				} else {
-					ts = strings.Split(fields[1], ".")[0]
-					user = &User{Name: GetAnonName(ts[len(ts)-4:], fields[2]), IsAnon: true}
+					user = &User{Name: GetAnonName(int(t.Unix()), userID), IsAnon: true}
 				}
-				user.IsSelf = fields[2] == g.SessionID[:8] && user.Name == g.LoginName
-				t, _ = ParseTime(fields[1])
+				user.IsSelf = userID == g.UserID && user.Name == g.LoginName
 				participant = &Participant{
 					ParticipantID: fields[0],
-					ID:            fields[2],
+					UserID:        userID,
 					User:          user,
 					Time:          t,
 				}
@@ -763,8 +768,7 @@ func (g *Group) Logout() (err error) {
 				}()
 			}
 
-			seed := fmt.Sprintf("%d", g.LoginTime.Unix())
-			g.LoginName = GetAnonName(seed[len(seed)-4:], g.SessionID[:8])
+			g.LoginName = GetAnonName(int(g.LoginTime.Unix()), g.UserID)
 			g.LoggedIn = false
 			return true
 		default:
@@ -1152,7 +1156,6 @@ func (g *Group) wsOnFrame(frame string) {
 	case "v":
 		g.eventVersion(data)
 	case "ok":
-		g.initFields()
 		g.eventOK(data)
 	case "i":
 		g.eventMessageHistory(data)
@@ -1237,14 +1240,14 @@ func (g *Group) eventOK(data string) {
 	fields := strings.SplitN(data, ":", 8)
 	g.Owner = fields[0]
 	g.SessionID = fields[1]
+	g.UserID, _ = strconv.Atoi(fields[1][:8])
 	g.LoggedIn = fields[2] == "M" // "C" if anon
+	g.LoginTime, _ = ParseTime(fields[4])
 	if fields[3] != "" {
 		g.LoginName = fields[3]
 	} else {
-		seed, _, _ := strings.Cut(fields[4], ".")
-		g.LoginName = GetAnonName(seed[len(seed)-4:], fields[1][:8])
+		g.LoginName = GetAnonName(int(g.LoginTime.Unix()), g.UserID)
 	}
-	g.LoginTime, _ = ParseTime(fields[4])
 	g.TimeDiff = time.Since(g.LoginTime)
 	g.LoginIp = fields[5]
 	var username, flag string
@@ -1355,19 +1358,19 @@ func (g *Group) eventRestrictUpdate(data string) {
 func (g *Group) eventParticipant(data string) {
 	fields := strings.SplitN(data, ":", 7)
 	var user *User
+	t, _ := ParseTime(fields[6])
+	userID, _ := strconv.Atoi(fields[2])
 	if fields[3] != "" {
 		user = &User{Name: fields[3]}
 	} else if fields[4] != "None" {
 		user = &User{Name: fields[4], IsAnon: true}
 	} else {
-		ts := strings.Split(fields[6], ".")[0]
-		user = &User{Name: GetAnonName(ts[len(ts)-4:], fields[2]), IsAnon: true}
+		user = &User{Name: GetAnonName(int(t.Unix()), userID), IsAnon: true}
 	}
-	user.IsSelf = fields[2] == g.SessionID[:8] && user.Name == g.LoginName
-	t, _ := ParseTime(fields[6])
+	user.IsSelf = userID == g.UserID && user.Name == g.LoginName
 	p := &Participant{
 		ParticipantID: fields[1],
-		ID:            fields[2],
+		UserID:        userID,
 		User:          user,
 		Time:          t,
 	}

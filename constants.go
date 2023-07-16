@@ -45,8 +45,7 @@ const (
 )
 
 const (
-	EndFrame = "STOP"
-	Charset  = "abcdefghijklmnopqrstuvwxyz0123456789"
+	charset = "abcdefghijklmnopqrstuvwxyz0123456789"
 )
 
 var (

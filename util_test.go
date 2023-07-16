@@ -7,8 +7,8 @@ import (
 )
 
 func TestGetAnonName(t *testing.T) {
-	seed := "1234"
-	sid := "66668888"
+	seed := 45621234
+	sid := 66668888
 
 	// Expected result: "anon9012"
 	expectedResult := "anon9012"
@@ -22,10 +22,10 @@ func TestGetAnonName(t *testing.T) {
 
 func TestCreateAnonSeed(t *testing.T) {
 	name := "anon9012"
-	sid := "66668888"
+	sid := 66668888
 
 	// Expected result: "1234"
-	expectedResult := "1234"
+	expectedResult := 1234
 
 	// Call the CreateAnonSeed function
 	result := CreateAnonSeed(name, sid)
