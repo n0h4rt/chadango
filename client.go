@@ -60,7 +60,6 @@ func (w *WebSocket) Sustain(ctx context.Context) {
 func (w *WebSocket) pumpEvent() {
 	defer func() {
 		w.Close()
-		w.Events <- EndFrame
 		close(w.Events)
 	}()
 

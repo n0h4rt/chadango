@@ -13,73 +13,73 @@ type Number interface {
 
 // Config represents a configuration object.
 type Config struct {
-	Username  string   `json:"username"`
-	Password  string   `json:"password"`
-	AnonName  string   `json:"anon_name"`
-	Groups    []string `json:"groups"`
-	NameColor string   `json:"name_color"`
-	TextColor string   `json:"text_color"`
-	TextFont  string   `json:"text_font"`
-	TextSize  int      `json:"text_size"`
-	SessionID string   `json:"session_id"`
-	EnableBG  bool     `json:"enable_bg"`
-	EnablePM  bool     `json:"enable_pm"`
-	Debug     bool     `json:"debug"`
-	Prefix    string   `json:"prefix"`
+	Username  string   `json:"username"`   // Username of the configuration.
+	Password  string   `json:"password"`   // Password of the configuration.
+	AnonName  string   `json:"anon_name"`  // Anonymous name of the configuration.
+	Groups    []string `json:"groups"`     // List of groups in the configuration.
+	NameColor string   `json:"name_color"` // Name color in the configuration.
+	TextColor string   `json:"text_color"` // Text color in the configuration.
+	TextFont  string   `json:"text_font"`  // Text font in the configuration.
+	TextSize  int      `json:"text_size"`  // Text size in the configuration.
+	SessionID string   `json:"session_id"` // Session ID in the configuration.
+	EnableBG  bool     `json:"enable_bg"`  // Enable background in the configuration.
+	EnablePM  bool     `json:"enable_pm"`  // Enable private messages in the configuration.
+	Debug     bool     `json:"debug"`      // Debug mode in the configuration.
+	Prefix    string   `json:"prefix"`     // Prefix for commands in the configuration.
 }
 
-// User represent a user object.
+// User represents a user object.
 type User struct {
-	Name   string
-	IsSelf bool
-	IsAnon bool
+	Name   string // Name of the user.
+	IsSelf bool   // Indicates if the user is self.
+	IsAnon bool   // Indicates if the user is anonymous.
 }
 
 // Participant represents a group participant object.
 type Participant struct {
-	ParticipantID string
-	ID            string
-	User          *User
-	Time          time.Time
+	ParticipantID string    // Participant ID.
+	UserID        int       // User ID.
+	User          *User     // User object.
+	Time          time.Time // Time of participation.
 }
 
-// Blocked represents a group banned user.
+// Blocked represents a banned user in a group.
 type Blocked struct {
-	IP           string
-	ModerationID string
-	Target       string
-	Blocker      string
-	Time         time.Time
+	IP           string    // IP address of the blocked user.
+	ModerationID string    // Moderation ID of the block.
+	Target       string    // Target username.
+	Blocker      string    // Username of the blocker.
+	Time         time.Time // Time of blocking.
 }
 
-// Unblocked represents a group unbanned user.
+// Unblocked represents an unblocked user in a group.
 type Unblocked struct {
-	IP           string
-	ModerationID string
-	Target       string
-	Unblocker    string
-	Time         time.Time
+	IP           string    // IP address of the unblocked user.
+	ModerationID string    // Moderation ID of the unblock.
+	Target       string    // Target username.
+	Unblocker    string    // Username of the unblocker.
+	Time         time.Time // Time of unblocking.
 }
 
-// UserStatus represents online status of a user.
+// UserStatus represents the online status of a user.
 type UserStatus struct {
-	User *User
-	Time time.Time
-	Info string
-	Idle time.Duration
+	User *User         // User object.
+	Time time.Time     // Time of the status.
+	Info string        // Additional information about the status.
+	Idle time.Duration // Idle duration of the user.
 }
 
-// UserStatus represents private message settings.
+// PrivateSetting represents the private message settings.
 type PrivateSetting struct {
-	DisableIdleTime bool
-	AllowAnon       bool
-	EmailOfflineMsg bool
+	DisableIdleTime bool // Disable idle time in private messages.
+	AllowAnon       bool // Allow anonymous messages.
+	EmailOfflineMsg bool // Email offline messages.
 }
 
 // BanWord represents a banned word.
 type BanWord struct {
-	WholeWords string `json:"wholeWords"`
-	Words      string `json:"words"`
+	WholeWords string `json:"wholeWords"` // Whole words to be banned.
+	Words      string `json:"words"`      // Words to be banned.
 }
 
 // SetWhole sets the whole banned words.

@@ -115,22 +115,26 @@ OK:
 // listen listens for incoming messages and events on the WebSocket connection.
 func (p *Private) listen() {
 	var frame string
+	var ok bool
 	var release context.Context
 	for {
 		select {
 		case <-p.context.Done():
 			return
-		case frame = <-p.events:
-			if frame == EndFrame {
+		case frame, ok = <-p.events:
+			if !ok {
 				return
 			}
 			go p.wsOnFrame(frame)
-		case frame = <-p.ws.Events:
-			if frame == EndFrame {
+		case frame, ok = <-p.ws.Events:
+			if !ok {
 				return
 			}
 			go p.wsOnFrame(strings.TrimRight(frame, "\r\n\x00"))
-		case release = <-p.takeOver:
+		case release, ok = <-p.takeOver:
+			if !ok {
+				return
+			}
 		inner:
 			for {
 				select {
@@ -138,8 +142,8 @@ func (p *Private) listen() {
 					return
 				case <-release.Done():
 					break inner
-				case frame = <-p.events:
-					if frame == EndFrame {
+				case frame, ok = <-p.events:
+					if !ok {
 						return
 					}
 					go p.wsOnFrame(frame)
@@ -227,13 +231,14 @@ func (p *Private) SyncSendWithTimeout(callback func(string) bool, timeout time.D
 	}
 
 	var frame string
+	var ok bool
 	for {
 		select {
 		case <-ctx.Done():
 			return ErrTimeout
-		case frame = <-p.ws.Events:
-			if frame == EndFrame {
-				p.events <- frame
+		case frame, ok = <-p.ws.Events:
+			if !ok {
+				close(p.events)
 				return ErrConnectionClosed
 			}
 			if callback(strings.TrimRight(frame, "\r\n\x00")) {

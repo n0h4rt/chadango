@@ -14,48 +14,43 @@ import (
 )
 
 // GetAnonName generates an anonymous name using the provided seed and sid.
-func GetAnonName(seed, sid string) (name string) {
-	if seed == "" {
-		seed = "3452"
+func GetAnonName(seed, sid int) (name string) {
+	if seed == 0 {
+		seed = 3452
 	}
-	var (
-		_seed int64
-		_sid  int64
-		sum   string
-	)
-	name = "anon"
-	if len(sid) >= 8 {
-		sid = sid[4:8]
+	var digit1, digit2, sum int
+
+	seed %= 1e4
+	sid %= 1e4
+	result := 0
+	for i := 1; seed > 0 || sid > 0; i *= 10 {
+		digit1 = sid % 10
+		digit2 = seed % 10
+		sum = digit1 + digit2
+		result = (sum%10)*i + result
+		sid /= 10
+		seed /= 10
 	}
-	for i := 0; i < len(sid); i++ {
-		_seed, _ = strconv.ParseInt(seed[i:i+1], 10, 64)
-		_sid, _ = strconv.ParseInt(sid[i:i+1], 10, 64)
-		sum = fmt.Sprintf("%d", _seed+_sid)
-		name += string(sum[len(sum)-1])
-	}
-	return
+	return "anon" + strconv.Itoa(result)
 }
 
 // CreateAnonSeed creates an anonymous seed using the provided name and sid.
-func CreateAnonSeed(name, sid string) (seed string) {
-	var (
-		nInt int64
-		sInt int64
-	)
+func CreateAnonSeed(name string, sid int) (seed int) {
 	if strings.HasPrefix(name, "anon") {
 		name = name[4:Min(8, len(name))]
 	}
-	if len(sid) >= 8 {
-		sid = sid[4:8]
-	}
+	sid %= 1e4
 	if IsDigit(name) {
+		var digit1, digit2 int
+		mult := 1000
 		for i := 0; i < len(name); i++ {
-			nInt, _ = strconv.ParseInt(name[i:i+1], 10, 64)
-			sInt, _ = strconv.ParseInt(sid[i:i+1], 10, 64)
-			if nInt < sInt {
-				nInt += 10
+			digit1 = int(name[i] - '0')
+			digit2 = sid / mult % 10
+			if digit1 < digit2 {
+				digit1 += 10
 			}
-			seed += fmt.Sprintf("%d", nInt-sInt)
+			seed += (digit1 - digit2) * mult
+			mult /= 10
 		}
 	}
 	return
@@ -182,12 +177,12 @@ func ParseTime(strtime string) (t time.Time, err error) {
 
 // GenerateRandomString generates a random string of the specified length.
 func GenerateRandomString(length int) string {
-	charsetLength := int64(len(Charset))
+	charsetLength := int64(len(charset))
 	b := make([]byte, length)
 	var n *big.Int
 	for i := range b {
 		n, _ = rand.Int(rand.Reader, big.NewInt(charsetLength))
-		b[i] = Charset[n.Int64()]
+		b[i] = charset[n.Int64()]
 	}
 	return string(b)
 }
