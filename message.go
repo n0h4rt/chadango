@@ -233,7 +233,7 @@ func ParsePrivateMessage(data string, private *Private) *Message {
 	return msg
 }
 
-// ParseAnnouncement parses a group announcement data and returns a Message object.
+// ParseAnnouncement parses a group announcement data and returns a `*Message` object.
 func ParseAnnouncement(data string, group *Group) *Message {
 	fields := strings.SplitN(data, ":", 3)
 	text := HtmlTagRe.ReplaceAllString(fields[2], "$1")
