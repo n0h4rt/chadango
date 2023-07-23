@@ -485,7 +485,7 @@ type MessageStyle struct {
 
 // GetForm returns the URL-encoded form values for the `MessageStyle`.
 func (mb MessageStyle) GetForm() url.Values {
-	form = url.Values{}
+	form := url.Values{}
 	configType := reflect.TypeOf(mb)
 	configValue := reflect.ValueOf(mb)
 	var (
