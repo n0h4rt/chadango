@@ -76,21 +76,25 @@ func (g *Group) Connect(ctx context.Context) (err error) {
 
 	g.context, g.cancelCtx = context.WithCancel(ctx)
 
+	log.Debug().Str("Name", g.Name).Msg("Connecting")
+
 	err = g.connect()
 	if err != nil {
 		g.cancelCtx()
 	}
 
 	g.Connected = true
+
 	return
 }
 
 func (g *Group) connect() (err error) {
-	log.Debug().Str("Name", g.Name).Msg("Connecting")
-
 	defer func() {
 		if err != nil {
-			g.ws.Close()
+			if g.ws != nil {
+				g.ws.Close()
+			}
+
 			log.Debug().Str("Name", g.Name).Msg("Connect failed")
 		}
 	}()
@@ -116,7 +120,7 @@ func (g *Group) connect() (err error) {
 		return
 	}
 	if !strings.HasPrefix(frame, "v") {
-		return ErrInvalidResponse
+		return ErrLoginFailed
 	}
 	g.events <- frame
 
@@ -140,7 +144,9 @@ func (g *Group) connect() (err error) {
 	g.initFields()
 	g.ws.Sustain(g.context)
 	go g.listen()
+
 	log.Debug().Str("Name", g.Name).Msg("Connected")
+
 	return
 }
 
@@ -190,9 +196,11 @@ func (g *Group) Disconnect() {
 	if g.backoff != nil {
 		g.backoff.Cancel()
 	}
+
 	if !g.Connected {
 		return
 	}
+
 	g.Connected = false
 	g.cancelCtx()
 	g.ws.Close()
@@ -214,6 +222,7 @@ func (g *Group) Reconnect() (err error) {
 			return
 		}
 	}
+
 	// Either canceled or reached the maximum retries.
 	return ErrRetryEnds
 }
@@ -223,6 +232,7 @@ func (g *Group) Send(args ...string) error {
 	if !g.ws.Connected {
 		return ErrNotConnected
 	}
+
 	length := len(args)
 	if length == 0 {
 		return ErrNoArgument
@@ -233,6 +243,7 @@ func (g *Group) Send(args ...string) error {
 	terminator := args[length-1]
 	args = args[:length-1]
 	command := strings.Join(args, ":")
+
 	return g.ws.Send(command + terminator)
 }
 
@@ -240,7 +251,7 @@ func (g *Group) Send(args ...string) error {
 // First, a `g.takeOver` request will be made and it will wait until the listener goroutine catches it.
 // Then, the `args` will be sent to the server.
 // Each time a frame is received, the `callback` function is invoked and passed the frame.
-// The `callback` should return `true` if a correct frame is acquired, and `false` otherwise.
+// The `callback` should return `false` if a correct frame is acquired, and `true` otherwise.
 func (g *Group) SyncSendWithTimeout(callback func(string) bool, timeout time.Duration, args ...string) (err error) {
 	ctx, cancel := context.WithTimeout(g.context, timeout)
 	defer cancel()
@@ -275,7 +286,7 @@ func (g *Group) SyncSendWithTimeout(callback func(string) bool, timeout time.Dur
 				// climited:1485666967794:bm:e8n2:0:<n000/><f x9000="1">n
 				return ErrCLimited
 			}
-			if callback(frame) {
+			if !callback(frame) {
 				return
 			}
 		}
@@ -288,10 +299,14 @@ func (g *Group) SyncSend(cb func(string) bool, text ...string) error {
 	return g.SyncSendWithTimeout(cb, SYNC_SEND_TIMEOUT, text...)
 }
 
-// SendMessage sends the `text` and returns the sent `*Message`.
-// In case of an error, including flood ban, auto moderation, rate limit,
-// as well as login, proxy, and verification restrictions, the corresponding error will be returned.
-func (g *Group) SendMessage(text string) (msg *Message, err error) {
+// SendMessage sends a message to the group with the specified text and optional arguments.
+// It returns a pointer to the sent `*Message` and an error (if any occurred).
+// The text can include formatting placeholders (%s, %d, etc.), and optional arguments can be provided to fill in these placeholders.
+// The function also handles flood warnings, restricted messages, spam warnings, rate limiting, and other Chatango-specific events.
+// If the group is logged in, the message text is styled with the group's name color, text size, text color, and text font.
+// If the group is anonymous, the message text is modified with the anonymous seed based on the group's `AnonName` and `UserID`.
+// The function replaces newlines with the `<br/>` HTML tag to format the message properly.
+func (g *Group) SendMessage(text string, a ...any) (msg *Message, err error) {
 	// The received "b" and "u" frames should be returned to `g.Events`.
 	var idBuffer = map[string]string{}
 	cb := func(frame string) bool {
@@ -302,12 +317,12 @@ func (g *Group) SendMessage(text string) (msg *Message, err error) {
 			if msg == nil {
 				message := ParseGroupMessage(data, g)
 				if !message.User.IsSelf {
-					return false
+					return true
 				}
 				msg = message
 				if newID, ok := idBuffer[message.ID]; ok {
 					message.ID = newID
-					return true
+					return false
 				}
 			}
 		case "u":
@@ -315,17 +330,17 @@ func (g *Group) SendMessage(text string) (msg *Message, err error) {
 			oldID, newID, _ := strings.Cut(data, ":")
 			if msg != nil && msg.ID == oldID {
 				msg.ID = newID
-				return true
+				return false
 			}
 			idBuffer[oldID] = newID
 		case "show_fw":
 			g.eventRestrictUpdate(data)
 			err = ErrFloodWarning
-			return true
+			return false
 		case "show_tb", "tb":
 			g.eventRestrictUpdate(data)
 			err = ErrRestricted
-			return true
+			return false
 		case "show_nlp":
 			if mask, _ := strconv.Atoi(data); mask&2 == 2 {
 				err = ErrSpamWarning
@@ -334,45 +349,47 @@ func (g *Group) SendMessage(text string) (msg *Message, err error) {
 			} else {
 				err = ErrNonSenseWarning
 			}
-			return true
+			return false
 		case "show_nlp_tb":
 			// The first data in the fields is unknown, so let's leave it as it is for now.
 			// show_nlp_tb:3:900
 			_, min, _ := strings.Cut(data, ":")
 			g.eventRestrictUpdate(min)
 			err = ErrRestricted
-			return true
+			return false
 		case "nlptb":
 			g.eventRestrictUpdate(data)
 			err = ErrRestricted
-			return true
+			return false
 		case "msglexceeded":
 			g.MaxMessageLength, _ = strconv.Atoi(data)
 			err = ErrMessageLength
-			return true
+			return false
 		case "ratelimited":
 			dur, _ := time.ParseDuration(data + "s")
 			g.RateLimited = time.Now().Add(dur)
 			err = ErrRateLimited
-			return true
+			return false
 		case "mustlogin":
 			err = ErrMustLogin
-			return true
+			return false
 		case "proxybanned":
 			err = ErrProxyBanned
-			return true
+			return false
 		case "verificationrequired":
 			err = ErrVerificationRequired
+			return false
 		default:
 			// Send the frame back to the listener.
 			g.events <- frame
 		}
-		return false
+		return true
 	}
 
 	// I'm not sure what it is for, but it gets sent back to the client when `climited` occurs.
-	// randomString := GenerateRandomString(4)
 	randomString := strconv.FormatInt(int64(15e5*rand.Float64()), 36)
+
+	text = fmt.Sprintf(text, a...)
 
 	// Style thing
 	if g.LoggedIn {
@@ -389,7 +406,11 @@ func (g *Group) SendMessage(text string) (msg *Message, err error) {
 	// Replacing newlines with the `<br/>` tag.
 	text = strings.ReplaceAll(text, "\r\n", "<br/>")
 	text = strings.ReplaceAll(text, "\n", "<br/>")
-	err = g.SyncSend(cb, "bm", randomString, fmt.Sprintf("%d", g.Channel), text, "\r\n")
+
+	if err2 := g.SyncSend(cb, "bm", randomString, fmt.Sprintf("%d", g.Channel), text, "\r\n"); err == nil && err2 != nil {
+		err = err2
+	}
+
 	return
 }
 
@@ -403,6 +424,7 @@ func (g *Group) SendMessageChunked(text string, chunkSize int) (msgs []*Message,
 		}
 		msgs = append(msgs, msg)
 	}
+
 	return
 }
 
@@ -449,14 +471,15 @@ func (g *Group) GetParticipantsStart() (p *SyncMap[string, *Participant], err er
 			}
 			p = &g.Participants
 			g.UserCount = g.Participants.Len()
-			return true
+			return false
 		default:
 			g.events <- frame
 		}
-		return false
+		return true
 	}
 
 	err = g.SyncSend(cb, "gparticipants", "\r\n")
+
 	return
 }
 
@@ -477,13 +500,15 @@ func (g *Group) GetRateLimit() (rate, current time.Duration, err error) {
 			g.RateLimit = rate
 			current, _ := time.ParseDuration(c + "s")
 			g.RateLimited = time.Now().Add(current)
-			return true
+			return false
 		default:
 			g.events <- frame
 		}
-		return false
+		return true
 	}
+
 	err = g.SyncSend(cb, "getratelimit", "\r\n")
+
 	return
 }
 
@@ -494,13 +519,15 @@ func (g *Group) SetRateLimit(interval time.Duration) (rate time.Duration, err er
 		switch head {
 		case "ratelimitset":
 			rate, _ = time.ParseDuration(data + "s")
-			return true
+			return false
 		default:
 			g.events <- frame
 		}
-		return false
+		return true
 	}
+
 	err = g.SyncSend(cb, "setratelimit", fmt.Sprintf("%.0f", interval.Seconds()), "\r\n")
+
 	return
 }
 
@@ -514,46 +541,45 @@ func (g *Group) GetAnnouncement() (annc string, enabled bool, interval time.Dura
 			annc = fields[4]
 			enabled = fields[0] != "0"
 			interval, _ = time.ParseDuration(fields[3] + "s")
-			return true
+			return false
 		default:
 			g.events <- frame
 		}
-		return false
+		return true
 	}
+
 	err = g.SyncSend(cb, "getannouncement", "\r\n")
+
 	return
 }
 
 // SetAnnouncement sets the announcement settings for the group.
-func (g *Group) SetAnnouncement(annc string, enable bool, interval time.Duration) (err error) {
-	ena := "0"
-	if enable {
-		ena = "1"
-	}
-	err = g.Send("updateannouncement", ena, fmt.Sprintf("%.0f", interval.Seconds()), "\r\n")
-	return
+func (g *Group) SetAnnouncement(annc string, enable bool, interval time.Duration) error {
+	return g.Send("updateannouncement", BoolZeroOrOne(enable), fmt.Sprintf("%.0f", interval.Seconds()), "\r\n")
 }
 
 // UpdateGroupFlag updates the group's flag by adding and removing specific flags.
 func (g *Group) UpdateGroupFlag(addition, removal int64) (err error) {
 	cb := func(frame string) bool {
-		head, data, _ := strings.Cut(frame, ":")
+		head, _, _ := strings.Cut(frame, ":")
 		switch head {
 		case "groupflagstoggled":
-			fields := strings.SplitN(data, ":", 3)
-			/* addition, _ := strconv.ParseInt(fields[0], 10, 64)
+			/* fields := strings.SplitN(data, ":", 3)
+			addition, _ := strconv.ParseInt(fields[0], 10, 64)
 			removal, _ := strconv.ParseInt(fields[1], 10, 64)
-			status, _ := strconv.Atoi(fields[2]) */
+			status, _ := strconv.Atoi(fields[2])
 			if fields[2] != "1" {
-				err = ErrUpdateFailed
-			}
-			return true
+				err = ErrRequestFailed
+			} */
+			return false
 		default:
 			g.events <- frame
 		}
-		return false
+		return true
 	}
+
 	err = g.SyncSend(cb, "updategroupflags", fmt.Sprintf("%d:%d", addition, removal), "\r\n")
+
 	return
 }
 
@@ -569,13 +595,15 @@ func (g *Group) GetPremiumInfo() (flag int, expire time.Time, err error) {
 			flag, _ = strconv.Atoi(fl)
 			expire, _ = ParseTime(ti)
 			g.PremiumExpireAt = expire
-			return true
+			return false
 		default:
 			g.events <- frame
 		}
-		return false
+		return true
 	}
+
 	err = g.SyncSend(cb, "getpremium", "\r\n")
+
 	return
 }
 
@@ -589,12 +617,13 @@ func (g *Group) SetBackground(enable bool) (err error) {
 				return
 			}
 		}
+
 		if g.PremiumExpireAt.Before(time.Now()) {
-			return ErrPremiumExpired
+			return ErrRequestFailed
 		}
-		return g.Send("msgbg", "1", "\r\n")
 	}
-	return g.Send("msgbg", "0", "\r\n")
+
+	return g.Send("msgbg", BoolZeroOrOne(enable), "\r\n")
 }
 
 // SetMedia sets the media status of the group.
@@ -607,12 +636,13 @@ func (g *Group) SetMedia(enable bool) (err error) {
 				return
 			}
 		}
+
 		if g.PremiumExpireAt.Before(time.Now()) {
-			return ErrPremiumExpired
+			return ErrRequestFailed
 		}
-		return g.Send("msgmedia", "1", "\r\n")
 	}
-	return g.Send("msgmedia", "0", "\r\n")
+
+	return g.Send("msgmedia", BoolZeroOrOne(enable), "\r\n")
 }
 
 // GetBanList retrieves a list of blocked users (ban list) for the group.
@@ -624,61 +654,98 @@ func (g *Group) GetBanList(offset time.Time, ammount int) (banList []Blocked, er
 		switch head {
 		case "blocklist":
 			var fields []string
+			var target string
 			var t time.Time
 			var banned Blocked
 			for _, entry := range strings.Split(data, ";") {
 				fields = strings.SplitN(entry, ":", 5)
+				target = fields[2]
+				if target == "" {
+					target = "anon"
+				}
 				t, _ = ParseTime(fields[3])
 				banned = Blocked{
 					IP:           fields[1],
 					ModerationID: fields[0],
-					Target:       fields[2],
+					Target:       target,
 					Blocker:      fields[4],
 					Time:         t,
 				}
 				banList = append(banList, banned)
 			}
-			return true
+			return false
 		default:
 			g.events <- frame
 		}
-		return false
+		return true
 	}
+
 	offsetS := fmt.Sprintf("%d", offset.Unix())
 	ammountS := fmt.Sprintf("%d", ammount)
+
 	err = g.SyncSend(cb, "blocklist", "block", offsetS, "next", ammountS, "anons", "1", "\r\n")
+
 	return
 }
 
 // SearchBannedUser searches for a banned user in the group's ban list.
 // The query can be either a user name or an IP address.
-func (g *Group) SearchBannedUser(query string) (banned Blocked, ok bool) {
+func (g *Group) SearchBannedUser(query string) (banned Blocked, ok bool, err error) {
 	query = strings.TrimSpace(query)
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
 		switch head {
 		case "bansearchresult":
 			fields := strings.SplitN(data, ":", 6)
+			target := fields[1]
+			if target == "" {
+				target = "anon"
+			}
 			// It would be nicer to use a constant rather than a naked string.
 			t, _ := time.Parse("2006-01-02 15:04:05", fields[5])
 			banned = Blocked{
 				IP:           fields[2],
 				ModerationID: fields[3],
-				Target:       fields[1],
+				Target:       target,
 				Blocker:      fields[4],
 				Time:         t,
 			}
 			ok = true
-			return true
+			return false
 		case "badbansearchstring":
 			// Simply return an empty result.
-			return true
+			return false
 		default:
 			g.events <- frame
 		}
-		return false
+		return true
 	}
-	g.SyncSend(cb, "searchban", query, "\r\n")
+
+	err = g.SyncSend(cb, "searchban", query, "\r\n")
+
+	return
+}
+
+// BanUser bans the user associated with the specified message.
+func (g *Group) BanUser(message *Message) (err error) {
+	// The received frame should be returned to `g.Events`.
+	cb := func(frame string) bool {
+		head, data, _ := strings.Cut(frame, ":")
+		switch head {
+		case "blocked":
+			g.events <- frame
+			moderationID, _, _ := strings.Cut(data, ":")
+			if moderationID == message.ModerationID {
+				return false
+			}
+		default:
+			g.events <- frame
+		}
+		return true
+	}
+
+	err = g.SyncSend(cb, "block", message.ModerationID, message.UserIP, message.User.Name, "\r\n")
+
 	return
 }
 
@@ -691,29 +758,81 @@ func (g *Group) GetUnbanList(offset time.Time, ammount int) (unbanList []Unblock
 		switch head {
 		case "unblocklist":
 			var fields []string
+			var target string
 			var t time.Time
 			var unbanned Unblocked
 			for _, entry := range strings.Split(data, ";") {
 				fields = strings.SplitN(entry, ":", 5)
+				target = fields[2]
+				if target == "" {
+					target = "anon"
+				}
 				t, _ = ParseTime(fields[3])
 				unbanned = Unblocked{
 					IP:           fields[1],
 					ModerationID: fields[0],
-					Target:       fields[2],
+					Target:       target,
 					Unblocker:    fields[4],
 					Time:         t,
 				}
 				unbanList = append(unbanList, unbanned)
 			}
-			return true
+			return false
 		default:
 			g.events <- frame
 		}
-		return false
+		return true
 	}
+
 	offsetS := fmt.Sprintf("%d", offset.Unix())
 	ammountS := fmt.Sprintf("%d", ammount)
+
 	err = g.SyncSend(cb, "blocklist", "unblock", offsetS, "next", ammountS, "anons", "1", "\r\n")
+
+	return
+}
+
+// UnbanUser unblocks the specified blocked user.
+func (g *Group) UnbanUser(blocked *Blocked) (err error) {
+	// The received frame should be returned to `g.Events`.
+	cb := func(frame string) bool {
+		head, data, _ := strings.Cut(frame, ":")
+		switch head {
+		case "unblocked":
+			g.events <- frame
+			moderationID, _, _ := strings.Cut(data, ":")
+			if moderationID == blocked.ModerationID {
+				return false
+			}
+		default:
+			g.events <- frame
+		}
+		return true
+	}
+
+	err = g.SyncSend(cb, "removeblock", blocked.ModerationID, blocked.IP, "\r\n")
+
+	return
+}
+
+// UnbanAll unblocks all blocked users.
+func (g *Group) UnbanAll() (err error) {
+	// The received frame should be returned to `g.Events`.
+	cb := func(frame string) bool {
+		head, _, _ := strings.Cut(frame, ":")
+		switch head {
+		case "allunblocked":
+			// allunblocked:2 (length of unblocked users)
+			g.events <- frame
+			return false
+		default:
+			g.events <- frame
+		}
+		return true
+	}
+
+	err = g.SyncSend(cb, "unbanall", "\r\n")
+
 	return
 }
 
@@ -726,28 +845,34 @@ func (g *Group) Login(username, password string) (err error) {
 		case "badalias":
 			// badalias:8 (reserved for anons)
 			err = ErrBadAlias
-			return true
+			return false
 		case "aliasok":
 			g.LoginName = username
-			return true
+			return false
 		case "badlogin":
 			// badlogin:2 (wrong password)
 			err = ErrBadLogin
-			return true
+			return false
 		case "pwdok":
 			g.LoginName = username
 			g.LoggedIn = true
-			return true
+			return false
 		default:
 			g.events <- frame
 		}
-		return false
+		return true
 	}
+
+	var err2 error
 	if password != "" {
-		err = g.SyncSend(cb, "blogin", username, password, "\r\n")
+		err2 = g.SyncSend(cb, "blogin", username, password, "\r\n")
 	} else {
-		err = g.SyncSend(cb, "blogin", username, "\r\n")
+		err2 = g.SyncSend(cb, "blogin", username, "\r\n")
 	}
+	if err == nil && err2 != nil {
+		err = err2
+	}
+
 	return
 }
 
@@ -770,13 +895,15 @@ func (g *Group) Logout() (err error) {
 
 			g.LoginName = GetAnonName(int(g.LoginTime.Unix()), g.UserID)
 			g.LoggedIn = false
-			return true
+			return false
 		default:
 			g.events <- frame
 		}
-		return false
+		return true
 	}
+
 	err = g.SyncSend(cb, "blogout", "\r\n")
+
 	return
 }
 
@@ -788,13 +915,15 @@ func (g *Group) GetBanWords() (banWord BanWord, err error) {
 		case "bw":
 			partial, exact, _ := strings.Cut(data, ":")
 			banWord = BanWord{WholeWords: exact, Words: partial}
-			return true
+			return false
 		default:
 			g.events <- frame
 		}
-		return false
+		return true
 	}
+
 	err = g.SyncSend(cb, "getbannedwords", "\r\n")
+
 	return
 }
 
@@ -804,13 +933,15 @@ func (g *Group) SetBanWords(banWord BanWord) (err error) {
 		head, _, _ := strings.Cut(frame, ":")
 		switch head {
 		case "ubw":
-			return true
+			return false
 		default:
 			g.events <- frame
 		}
-		return false
+		return true
 	}
+
 	err = g.SyncSend(cb, "\x00setbannedwords", banWord.Words, banWord.WholeWords, "\r\n")
+
 	return
 }
 
@@ -823,14 +954,16 @@ func (g *Group) Delete(message *Message) (err error) {
 		case "delete":
 			g.events <- frame
 			if data == message.ID {
-				return true
+				return false
 			}
 		default:
 			g.events <- frame
 		}
-		return false
+		return true
 	}
+
 	err = g.SyncSend(cb, "delmsg", message.ID, "\r\n")
+
 	return
 }
 
@@ -844,15 +977,17 @@ func (g *Group) DeleteAll(message *Message) (err error) {
 			g.events <- frame
 			for _, messageID := range strings.Split(data, ":") {
 				if messageID == message.ID {
-					return true
+					return false
 				}
 			}
 		default:
 			g.events <- frame
 		}
-		return false
+		return true
 	}
+
 	err = g.SyncSend(cb, "delallmsg", message.ModerationID, message.UserIP, message.User.Name, "\r\n")
+
 	return
 }
 
@@ -865,76 +1000,19 @@ func (g *Group) ClearAll() (err error) {
 		case "clearall":
 			g.events <- frame
 			if data == "error" {
-				err = ErrClearFailed
+				err = ErrRequestFailed
 			}
-			return true
+			return false
 		default:
 			g.events <- frame
 		}
-		return false
+		return true
 	}
-	err = g.SyncSend(cb, "clearall", "\r\n")
-	return
-}
 
-// BanUser bans the user associated with the specified message.
-func (g *Group) BanUser(message *Message) (err error) {
-	// The received frame should be returned to `g.Events`.
-	cb := func(frame string) bool {
-		head, data, _ := strings.Cut(frame, ":")
-		switch head {
-		case "blocked":
-			g.events <- frame
-			moderationID, _, _ := strings.Cut(data, ":")
-			if moderationID == message.ModerationID {
-				return true
-			}
-		default:
-			g.events <- frame
-		}
-		return false
+	if err2 := g.SyncSend(cb, "clearall", "\r\n"); err == nil && err2 != nil {
+		err = err2
 	}
-	err = g.SyncSend(cb, "block", message.ModerationID, message.UserIP, message.User.Name, "\r\n")
-	return
-}
 
-// UnbanUser unblocks the specified blocked user.
-func (g *Group) UnbanUser(blocked *Blocked) (err error) {
-	// The received frame should be returned to `g.Events`.
-	cb := func(frame string) bool {
-		head, data, _ := strings.Cut(frame, ":")
-		switch head {
-		case "unblocked":
-			g.events <- frame
-			moderationID, _, _ := strings.Cut(data, ":")
-			if moderationID == blocked.ModerationID {
-				return true
-			}
-		default:
-			g.events <- frame
-		}
-		return false
-	}
-	err = g.SyncSend(cb, "removeblock", blocked.ModerationID, blocked.IP, "\r\n")
-	return
-}
-
-// UnbanAll unblocks all blocked users.
-func (g *Group) UnbanAll() (err error) {
-	// The received frame should be returned to `g.Events`.
-	cb := func(frame string) bool {
-		head, _, _ := strings.Cut(frame, ":")
-		switch head {
-		case "allunblocked":
-			// allunblocked:2 (length of unblocked users)
-			g.events <- frame
-			return true
-		default:
-			g.events <- frame
-		}
-		return false
-	}
-	err = g.SyncSend(cb, "unbanall", "\r\n")
 	return
 }
 
@@ -950,20 +1028,24 @@ func (g *Group) AddModerator(username string, access int64) (err error) {
 			for _, entry := range strings.Split(data, ":") {
 				uname, _, _ = strings.Cut(entry, ",")
 				if strings.EqualFold(uname, username) {
-					return true
+					return false
 				}
 			}
-			err = ErrAddModFailed
-			return true
+			err = ErrRequestFailed
+			return false
 		case "addmoderr":
-			err = ErrAddModFailed
-			return true
+			err = ErrRequestFailed
+			return false
 		default:
 			g.events <- frame
 		}
-		return false
+		return true
 	}
-	err = g.SyncSend(cb, "addmod", username, fmt.Sprintf("%d", access), "\r\n")
+
+	if err2 := g.SyncSend(cb, "addmod", username, fmt.Sprintf("%d", access), "\r\n"); err == nil && err2 != nil {
+		err = err2
+	}
+
 	return
 }
 
@@ -981,18 +1063,22 @@ func (g *Group) UpdateModerator(username string, access int64) (err error) {
 				uname, flag, _ = strings.Cut(entry, ",")
 				flagInt, _ = strconv.ParseInt(flag, 10, 64)
 				if strings.EqualFold(uname, username) && flagInt == access {
-					return true
+					return false
 				}
 			}
 		case "updatemoderr":
-			err = ErrUpdateModFailed
-			return true
+			err = ErrRequestFailed
+			return false
 		default:
 			g.events <- frame
 		}
-		return false
+		return true
 	}
-	err = g.SyncSend(cb, "addmod", username, fmt.Sprintf("%d", access), "\r\n")
+
+	if err2 := g.SyncSend(cb, "addmod", username, fmt.Sprintf("%d", access), "\r\n"); err == nil && err2 != nil {
+		err = err2
+	}
+
 	return
 }
 
@@ -1008,20 +1094,24 @@ func (g *Group) RemoveModerator(username string) (err error) {
 			for _, entry := range strings.Split(data, ":") {
 				uname, _, _ = strings.Cut(entry, ",")
 				if strings.EqualFold(uname, username) {
-					err = ErrRemoveModFailed
-					return true
+					err = ErrRequestFailed
+					return false
 				}
 			}
-			return true
+			return false
 		case "removemoderr":
-			err = ErrRemoveModFailed
-			return true
+			err = ErrRequestFailed
+			return false
 		default:
 			g.events <- frame
 		}
-		return false
+		return true
 	}
-	err = g.SyncSend(cb, "removemod", username, "\r\n")
+
+	if err2 := g.SyncSend(cb, "removemod", username, "\r\n"); err == nil && err2 != nil {
+		err = err2
+	}
+
 	return
 }
 
@@ -1034,27 +1124,32 @@ func (g *Group) GetModActions(dir string, offset int) (modactions []*ModAction, 
 		switch head {
 		case "modactions":
 			modactions = ParseModActions(data)
-			return true
+			return false
 		default:
 			g.events <- frame
 		}
-		return false
+		return true
 	}
+
 	err = g.SyncSend(cb, "getmodactions", dir, fmt.Sprintf("%d", offset), "50", "\r\n")
+
 	return
 }
 
 // GetLastUserMessage retrieves the last message sent by the specified username in the group.
+// This is useful for banning a user by their username.
 func (g *Group) GetLastUserMessage(username string) (msg *Message, ok bool) {
 	cb := func(_ string, v *Message) bool {
 		if strings.EqualFold(v.User.Name, username) {
 			msg = v
 			ok = true
-			return true
+			return false
 		}
-		return false
+		return true
 	}
+
 	g.Messages.RangeReversed(cb)
+
 	return
 }
 
@@ -1071,15 +1166,17 @@ func (g *Group) getMoreHistory(offset, amount int) (count int, nomore bool, err 
 			g.events <- frame
 			count++
 		case "gotmore":
-			return true
+			return false
 		case "nomore":
 			nomore = true
 		default:
 			g.events <- frame
 		}
-		return false
+		return true
 	}
+
 	err = g.SyncSend(cb, "get_more", fmt.Sprintf("%d", amount), fmt.Sprintf("%d", offset), "\r\n")
+
 	return
 }
 
@@ -1090,12 +1187,13 @@ func (g *Group) ProfileRefresh() error {
 		switch head {
 		case "miu":
 			g.events <- frame
-			return true
+			return false
 		default:
 			g.events <- frame
 		}
-		return false
+		return true
 	}
+
 	return g.SyncSend(cb, "miu", "\r\n")
 }
 
@@ -1141,6 +1239,7 @@ func (g *Group) wsOnFrame(frame string) {
 	defer func() {
 		if err := recover(); err != nil {
 			log.Error().Str("Name", g.Name).Str("Frame", frame).Msgf("Error: %s", err)
+
 			event := &Event{
 				Type:  OnError,
 				Group: g,
@@ -1149,6 +1248,7 @@ func (g *Group) wsOnFrame(frame string) {
 			g.App.Dispatch(event)
 		}
 	}()
+
 	head, data, _ := strings.Cut(frame, ":")
 	switch head {
 	case "":
@@ -1243,13 +1343,16 @@ func (g *Group) eventOK(data string) {
 	g.UserID, _ = strconv.Atoi(fields[1][:8])
 	g.LoggedIn = fields[2] == "M" // "C" if anon
 	g.LoginTime, _ = ParseTime(fields[4])
+
 	if fields[3] != "" {
 		g.LoginName = fields[3]
 	} else {
 		g.LoginName = GetAnonName(int(g.LoginTime.Unix()), g.UserID)
 	}
+
 	g.TimeDiff = time.Since(g.LoginTime)
 	g.LoginIp = fields[5]
+
 	var username, flag string
 	var flagInt int64
 	if fields[6] != "" {
@@ -1259,6 +1362,7 @@ func (g *Group) eventOK(data string) {
 			g.Moderators.Set(username, flagInt)
 		}
 	}
+
 	g.Flag, _ = strconv.ParseInt(fields[7], 10, 64)
 
 	if g.App.Config.EnablePM {
@@ -1276,6 +1380,7 @@ func (g *Group) eventOK(data string) {
 func (g *Group) eventMessageHistory(data string) {
 	message := ParseGroupMessage(data, g)
 	g.Messages.SetFront(message.ID, message)
+
 	event := &Event{
 		Type:    OnMessageHistory,
 		Group:   g,
@@ -1301,6 +1406,7 @@ func (g *Group) eventInited(data string) {
 // eventParticipantCount handles the participant count change event.
 func (g *Group) eventParticipantCount(data string) {
 	g.ParticipantCount, _ = strconv.ParseInt(data, 16, 64)
+
 	event := &Event{
 		Type:  OnParticipantCountChange,
 		Group: g,
@@ -1316,6 +1422,7 @@ func (g *Group) eventMessage(data string) {
 		message.ID = id
 		g.Messages.Set(message.ID, message)
 		g.Messages.TrimFront(MAX_MESSAGE_HISTORY)
+
 		event := &Event{
 			Type:    OnMessage,
 			Group:   g,
@@ -1336,6 +1443,7 @@ func (g *Group) eventMessageUpdate(data string) {
 		g.Messages.Set(newID, message)
 		g.Messages.TrimFront(MAX_MESSAGE_HISTORY)
 		g.TempMessages.Del(oldID)
+
 		event := &Event{
 			Type:    OnMessage,
 			Group:   g,
@@ -1360,6 +1468,7 @@ func (g *Group) eventParticipant(data string) {
 	var user *User
 	t, _ := ParseTime(fields[6])
 	userID, _ := strconv.Atoi(fields[2])
+
 	if fields[3] != "" {
 		user = &User{Name: fields[3]}
 	} else if fields[4] != "None" {
@@ -1367,17 +1476,21 @@ func (g *Group) eventParticipant(data string) {
 	} else {
 		user = &User{Name: GetAnonName(int(t.Unix()), userID), IsAnon: true}
 	}
+
 	user.IsSelf = userID == g.UserID && user.Name == g.LoginName
+
 	p := &Participant{
 		ParticipantID: fields[1],
 		UserID:        userID,
 		User:          user,
 		Time:          t,
 	}
+
 	event := &Event{
 		Group: g,
 		User:  user,
 	}
+
 	switch fields[0] {
 	case "1":
 		g.Participants.Set(fields[1], p)
@@ -1412,6 +1525,7 @@ func (g *Group) eventParticipant(data string) {
 			g.UserCount--
 		}
 	}
+
 	g.App.Dispatch(event)
 }
 
@@ -1420,6 +1534,7 @@ func (g *Group) eventFlagsUpdate(data string) {
 	newFlag, _ := strconv.ParseInt(data, 10, 64)
 	// Compute the changes
 	added, removed := ComputeFlagChanges(g.Flag, newFlag)
+
 	event := &Event{
 		Type:        OnFlagUpdate,
 		Group:       g,
@@ -1465,6 +1580,7 @@ func (g *Group) eventModerators(data string) {
 				// No changes, skip to next entry
 				continue
 			}
+
 			// Compute the changes
 			added, removed = ComputeFlagChanges(oldFlag, newFlag)
 			event = &Event{
@@ -1499,6 +1615,7 @@ func (g *Group) eventModerators(data string) {
 				return false
 			}
 		}
+
 		// When it reaches this scope, it means the username has been removed.
 		user = &User{Name: username, IsSelf: strings.EqualFold(username, g.LoginName)}
 		event = &Event{
@@ -1539,6 +1656,7 @@ func (g *Group) eventMessageDelete(data string) {
 	msg, ok := g.Messages.Get(data)
 	if ok {
 		g.Messages.Del(data)
+
 		event := &Event{
 			Type:    OnMessageDelete,
 			Group:   g,
@@ -1563,6 +1681,7 @@ func (g *Group) eventMessageClearAll(data string) {
 		g.Messages.Clear()
 		g.TempMessages.Clear()
 		g.TempMessageIds.Clear()
+
 		event := &Event{
 			Type:  OnClearAll,
 			Group: g,
@@ -1584,6 +1703,7 @@ func (g *Group) eventUserBlocked(data string) {
 		Blocker:      fields[3],
 		Time:         t,
 	}
+
 	event := &Event{
 		Type:    OnUserBanned,
 		Group:   g,
@@ -1603,6 +1723,7 @@ func (g *Group) eventUserUnblocked(data string) {
 		Unblocker:    fields[3],
 		Time:         t,
 	}
+
 	event := &Event{
 		Type:      OnUserUnbanned,
 		Group:     g,
@@ -1627,6 +1748,7 @@ func (g *Group) eventUpdateGroupInfo(data string) {
 		Title:        title,
 		OwnerMessage: message,
 	}
+
 	event := &Event{
 		Type:      OnUpdateGroupInfo,
 		Group:     g,

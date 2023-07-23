@@ -1,16 +1,12 @@
 package chadango
 
 import (
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
-	"math/big"
 	"os"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/texttheater/golang-levenshtein/levenshtein"
 )
 
 // GetAnonName generates an anonymous name using the provided seed and sid.
@@ -23,6 +19,7 @@ func GetAnonName(seed, sid int) (name string) {
 	seed %= 1e4
 	sid %= 1e4
 	result := 0
+
 	for i := 1; seed > 0 || sid > 0; i *= 10 {
 		digit1 = sid % 10
 		digit2 = seed % 10
@@ -31,6 +28,7 @@ func GetAnonName(seed, sid int) (name string) {
 		sid /= 10
 		seed /= 10
 	}
+
 	return "anon" + strconv.Itoa(result)
 }
 
@@ -43,16 +41,20 @@ func CreateAnonSeed(name string, sid int) (seed int) {
 	if IsDigit(name) {
 		var digit1, digit2 int
 		mult := 1000
+
 		for i := 0; i < len(name); i++ {
 			digit1 = int(name[i] - '0')
 			digit2 = sid / mult % 10
+
 			if digit1 < digit2 {
 				digit1 += 10
 			}
+
 			seed += (digit1 - digit2) * mult
 			mult /= 10
 		}
 	}
+
 	return
 }
 
@@ -98,10 +100,12 @@ func GetServer(name string) string {
 	temp, _ := strconv.ParseInt(name[:Min(5, nameLen)], 36, 64)
 	firstHalf := int(temp)
 	secondHalf := 1000
+
 	if nameLen > 5 {
 		temp, _ = strconv.ParseInt(name[6:Min(9, nameLen)], 36, 64)
 		secondHalf = Max(1000, int(temp))
 	}
+
 	modRatio := float64(firstHalf%secondHalf) / float64(secondHalf)
 
 	// This can be pre-computed.
@@ -115,6 +119,7 @@ func GetServer(name string) string {
 			return fmt.Sprintf("ws://s%s.chatango.com:8080/", serverEntry[0])
 		}
 	}
+
 	return "ws://s5.chatango.com:8080/" // Default
 }
 
@@ -125,6 +130,7 @@ func Contains[T comparable](arr []T, item T) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -135,6 +141,7 @@ func Remove[T comparable](arr []T, item T) []T {
 			return append(arr[:i], arr[i+1:]...)
 		}
 	}
+
 	return arr
 }
 
@@ -146,6 +153,7 @@ func Min[T Number](a T, b ...T) (c T) {
 			c = n
 		}
 	}
+
 	return
 }
 
@@ -157,6 +165,7 @@ func Max[T Number](a T, b ...T) (c T) {
 			c = n
 		}
 	}
+
 	return
 }
 
@@ -172,32 +181,16 @@ func ParseTime(strtime string) (t time.Time, err error) {
 	if timeF, err = strconv.ParseFloat(strtime, 64); err == nil {
 		t = time.Unix(0, int64(timeF*1e9))
 	}
+
 	return
 }
 
-// GenerateRandomString generates a random string of the specified length.
-func GenerateRandomString(length int) string {
-	charsetLength := int64(len(charset))
-	b := make([]byte, length)
-	var n *big.Int
-	for i := range b {
-		n, _ = rand.Int(rand.Reader, big.NewInt(charsetLength))
-		b[i] = charset[n.Int64()]
+// BoolZeroOrOne returns either "0" or "1"
+func BoolZeroOrOne(b bool) string {
+	if b {
+		return "1"
 	}
-	return string(b)
-}
-
-// FindClosestMatch finds the closest matching string in the source array for the target string.
-func FindClosestMatch(source []string, target string) (match string, ratio float64) {
-	ratio = -1.0
-	for _, src := range source {
-		rat := levenshtein.RatioForStrings([]rune(src), []rune(target), levenshtein.DefaultOptions)
-		if rat > ratio {
-			ratio = rat
-			match = src
-		}
-	}
-	return
+	return "0"
 }
 
 // FileExists checks whether the specified file exists.
@@ -210,6 +203,7 @@ func FileExists(filename string) bool {
 func SplitTextIntoChunks(text string, chunkSize int) (chunks []string) {
 	var currentChunk string
 	var currentSize, wordSize int
+
 	for _, word := range strings.Fields(text) {
 		wordSize = len(word) + 1 // Include space after the word
 		if currentSize+wordSize > chunkSize {
@@ -218,12 +212,15 @@ func SplitTextIntoChunks(text string, chunkSize int) (chunks []string) {
 			currentChunk = ""
 			currentSize = 0
 		}
+
 		currentChunk += word + " "
 		currentSize += wordSize
 	}
+
 	if currentChunk != "" {
 		chunks = append(chunks, currentChunk[:currentSize-1])
 	}
+
 	return
 }
 
@@ -231,17 +228,8 @@ func SplitTextIntoChunks(text string, chunkSize int) (chunks []string) {
 func ComputeFlagChanges(oldFlags, newFlags int64) (addedFlags, removedFlags int64) {
 	addedFlags = newFlags &^ oldFlags
 	removedFlags = oldFlags &^ newFlags
-	return
-}
 
-// CopyMap is a generic function that copies the source map to the destination map.
-func CopyMap[K comparable, V any](src, dst map[K]V) {
-	if dst == nil {
-		dst = make(map[K]V)
-	}
-	for k, v := range src {
-		dst[k] = v
-	}
+	return
 }
 
 // LoadConfig loads the configuration from the specified file.

@@ -23,7 +23,9 @@ func (sm *SyncMap[K, V]) Set(key K, val V) {
 func (sm *SyncMap[K, V]) Get(key K) (val V, ok bool) {
 	sm.RLock()
 	defer sm.RUnlock()
+
 	val, ok = sm.M[key]
+
 	return
 }
 
@@ -31,6 +33,7 @@ func (sm *SyncMap[K, V]) Get(key K) (val V, ok bool) {
 func (sm *SyncMap[K, V]) Del(key K) {
 	sm.Lock()
 	defer sm.Unlock()
+
 	delete(sm.M, key)
 }
 
@@ -38,6 +41,7 @@ func (sm *SyncMap[K, V]) Del(key K) {
 func (sm *SyncMap[K, V]) Len() int {
 	sm.RLock()
 	defer sm.RUnlock()
+
 	return len(sm.M)
 }
 
@@ -46,6 +50,7 @@ func (sm *SyncMap[K, V]) Len() int {
 func (sm *SyncMap[K, V]) Range(fun func(K, V) bool) {
 	sm.RLock()
 	defer sm.RUnlock()
+
 	for k, v := range sm.M {
 		if !fun(k, v) {
 			return
@@ -57,6 +62,7 @@ func (sm *SyncMap[K, V]) Range(fun func(K, V) bool) {
 func (sm *SyncMap[K, V]) Clear() {
 	sm.Lock()
 	defer sm.Unlock()
+
 	sm.M = make(map[K]V)
 }
 
@@ -64,9 +70,11 @@ func (sm *SyncMap[K, V]) Clear() {
 func (sm *SyncMap[K, V]) Keys() (keys []K) {
 	sm.RLock()
 	defer sm.RUnlock()
+
 	for k := range sm.M {
 		keys = append(keys, k)
 	}
+
 	return
 }
 
@@ -74,12 +82,14 @@ func (sm *SyncMap[K, V]) Keys() (keys []K) {
 func (sm *SyncMap[K, V]) GobEncode() ([]byte, error) {
 	sm.RLock()
 	defer sm.RUnlock()
+
 	var buf bytes.Buffer
 	enc := gob.NewEncoder(&buf)
 	err := enc.Encode(sm.M)
 	if err != nil {
 		return nil, err
 	}
+
 	return buf.Bytes(), nil
 }
 
@@ -87,12 +97,15 @@ func (sm *SyncMap[K, V]) GobEncode() ([]byte, error) {
 func (sm *SyncMap[K, V]) GobDecode(data []byte) error {
 	sm.Lock()
 	defer sm.Unlock()
+
 	buf := bytes.NewBuffer(data)
 	dec := gob.NewDecoder(buf)
 	err := dec.Decode(&sm.M)
+
 	if err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -112,6 +125,7 @@ type OrderedSyncMap[K comparable, V any] struct {
 func (sm *OrderedSyncMap[K, V]) Set(key K, val V) {
 	sm.Lock()
 	defer sm.Unlock()
+
 	sm.del(key)
 	sm.K = append(sm.K, key)
 	sm.M[key] = val
@@ -121,7 +135,9 @@ func (sm *OrderedSyncMap[K, V]) Set(key K, val V) {
 func (sm *OrderedSyncMap[K, V]) Get(key K) (val V, ok bool) {
 	sm.RLock()
 	defer sm.RUnlock()
+
 	val, ok = sm.M[key]
+
 	return
 }
 
@@ -129,6 +145,7 @@ func (sm *OrderedSyncMap[K, V]) Get(key K) (val V, ok bool) {
 func (sm *OrderedSyncMap[K, V]) Del(key K) {
 	sm.Lock()
 	defer sm.Unlock()
+
 	sm.del(key)
 }
 
@@ -142,9 +159,11 @@ func (sm *OrderedSyncMap[K, V]) del(key K) {
 			break
 		}
 	}
+
 	if index < 0 {
 		return
 	}
+
 	sm.K = append(sm.K[:index], sm.K[index+1:]...)
 	delete(sm.M, key)
 }
@@ -153,6 +172,7 @@ func (sm *OrderedSyncMap[K, V]) del(key K) {
 func (sm *OrderedSyncMap[K, V]) Len() int {
 	sm.RLock()
 	defer sm.RUnlock()
+
 	return len(sm.M)
 }
 
@@ -161,6 +181,7 @@ func (sm *OrderedSyncMap[K, V]) Len() int {
 func (sm *OrderedSyncMap[K, V]) Range(fun func(K, V) bool) {
 	sm.RLock()
 	defer sm.RUnlock()
+
 	for _, k := range sm.K {
 		if !fun(k, sm.M[k]) {
 			return
@@ -173,6 +194,7 @@ func (sm *OrderedSyncMap[K, V]) Range(fun func(K, V) bool) {
 func (sm *OrderedSyncMap[K, V]) RangeReversed(fun func(K, V) bool) {
 	sm.RLock()
 	defer sm.RUnlock()
+
 	for i := len(sm.K) - 1; i >= 0; i-- {
 		if !fun(sm.K[i], sm.M[sm.K[i]]) {
 			return
@@ -184,6 +206,7 @@ func (sm *OrderedSyncMap[K, V]) RangeReversed(fun func(K, V) bool) {
 func (sm *OrderedSyncMap[K, V]) Clear() {
 	sm.Lock()
 	defer sm.Unlock()
+
 	sm.K = make([]K, 0)
 	sm.M = make(map[K]V)
 }
@@ -192,6 +215,7 @@ func (sm *OrderedSyncMap[K, V]) Clear() {
 func (sm *OrderedSyncMap[K, V]) Keys() []K {
 	sm.RLock()
 	defer sm.RUnlock()
+
 	return sm.K
 }
 
@@ -199,6 +223,7 @@ func (sm *OrderedSyncMap[K, V]) Keys() []K {
 func (sm *OrderedSyncMap[K, V]) SetFront(key K, val V) {
 	sm.Lock()
 	defer sm.Unlock()
+
 	sm.del(key)
 
 	temp := make([]K, len(sm.K)+1)
@@ -220,6 +245,7 @@ func (sm *OrderedSyncMap[K, V]) TrimFront(length int) {
 
 	sm.Lock()
 	defer sm.Unlock()
+
 	trim := sm.K[:l-length]
 	for _, k := range trim {
 		sm.del(k)
@@ -230,16 +256,19 @@ func (sm *OrderedSyncMap[K, V]) TrimFront(length int) {
 func (sm *OrderedSyncMap[K, V]) GobEncode() ([]byte, error) {
 	sm.RLock()
 	defer sm.RUnlock()
+
 	var buf bytes.Buffer
 	enc := gob.NewEncoder(&buf)
 	err := enc.Encode(sm.K)
 	if err != nil {
 		return nil, err
 	}
+
 	err = enc.Encode(sm.M)
 	if err != nil {
 		return nil, err
 	}
+
 	return buf.Bytes(), nil
 }
 
@@ -247,16 +276,19 @@ func (sm *OrderedSyncMap[K, V]) GobEncode() ([]byte, error) {
 func (sm *OrderedSyncMap[K, V]) GobDecode(data []byte) error {
 	sm.Lock()
 	defer sm.Unlock()
+
 	buf := bytes.NewBuffer(data)
 	dec := gob.NewDecoder(buf)
 	err := dec.Decode(&sm.K)
 	if err != nil {
 		return err
 	}
+
 	err = dec.Decode(&sm.M)
 	if err != nil {
 		return err
 	}
+
 	return nil
 }
 

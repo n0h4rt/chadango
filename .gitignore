@@ -2,3 +2,6 @@
 /examples/extended/
 /tagserver/
 /gcm.gone
+/go.work
+/go.work.sum
+*.code-workspace

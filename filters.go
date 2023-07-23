@@ -16,11 +16,11 @@ import (
 
 // Filter is an interface that defines the methods for filtering events.
 type Filter interface {
-	Check(*Event) bool
-	And(Filter) Filter
-	Or(Filter) Filter
-	Xor(Filter) Filter
-	Not() Filter
+	Check(*Event) bool // Check evaluates if the given event passes the filter conditions.
+	And(Filter) Filter // And returns a new filter that combines the current filter with another using logical AND.
+	Or(Filter) Filter  // Or returns a new filter that combines the current filter with another using logical OR.
+	Xor(Filter) Filter // Xor returns a new filter that combines the current filter with another using logical XOR.
+	Not() Filter       // Not returns a new filter that negates the current filter using logical NOT.
 }
 
 const (
@@ -34,9 +34,9 @@ const (
 
 // CombineFilter is a struct that represents the logical AND of two filters.
 type CombineFilter struct {
-	Left  Filter
-	Right Filter
-	Mode  int
+	Left  Filter // Left represents the first filter to be combined using logical AND.
+	Right Filter // Right represents the second filter to be combined using logical AND.
+	Mode  int    // Mode specifies the combination mode: 0 for AND, 1 for OR, and 2 for XOR.
 }
 
 // Check returns true if both the left and right filters return true.
@@ -75,7 +75,7 @@ func (f *CombineFilter) Not() Filter {
 
 // NotFilter is a struct that represents the logical NOT of a filter.
 type NotFilter struct {
-	Base Filter
+	Base Filter // Base represents the filter to be negated using logical NOT.
 }
 
 // Check returns the logical negation of the filter's result.
@@ -105,7 +105,7 @@ func (f *NotFilter) Not() Filter {
 
 // UserFilter represents a filter for users.
 type UserFilter struct {
-	Users []string
+	Users []string // Users is a list of usernames to filter events based on user information.
 }
 
 // Check checks if the event's user is in the filter's list of users.
@@ -153,7 +153,7 @@ func NewUserFilter(usernames ...string) Filter {
 
 // ChatFilter represents a filter for chats.
 type ChatFilter struct {
-	Chats []string
+	Chats []string // Chats is a list of chat names to filter events based on chat information.
 }
 
 // Check checks if the event's group is in the filter's list of chats.
@@ -201,7 +201,7 @@ func NewChatFilter(groupnames ...string) Filter {
 
 // RegexFilter represents a Message filter based on a regular expression pattern.
 type RegexFilter struct {
-	Pattern *regexp.Regexp
+	Pattern *regexp.Regexp // Pattern represents the regular expression pattern used for filtering messages.
 }
 
 // Check checks if the event matches the regular expression pattern.
