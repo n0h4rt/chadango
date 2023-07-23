@@ -215,7 +215,7 @@ func ParseGroupMessage(data string, group *Group) *Message {
 	return msg
 }
 
-// ParsePrivateMessage parses a private message data and returns a Message object.
+// ParsePrivateMessage parses a private message data and returns a `*Message` object.
 func ParsePrivateMessage(data string, private *Private) *Message {
 	fields := strings.SplitN(data, ":", 6)
 	msg := &Message{Private: private, IsPrivate: true}
