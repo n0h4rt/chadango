@@ -5,7 +5,6 @@ go 1.20
 require (
 	github.com/rs/zerolog v1.29.1
 	github.com/stretchr/testify v1.8.4
-	github.com/texttheater/golang-levenshtein/levenshtein v0.0.0-20200805054039-cae8b0eaed6c
 	golang.org/x/net v0.12.0
 )
 

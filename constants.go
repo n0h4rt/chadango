@@ -22,7 +22,6 @@ const (
 	MSG_LENGTH_DEFAULT  = 2900
 	MSG_LENGTH_SHORT    = 850
 	API_TIMEOUT         = 10 * time.Second
-	BOT_DATA_KEY        = "<BOTDATA>"
 )
 
 const (
@@ -31,21 +30,17 @@ const (
 	FlagPremium
 	FlagBackground
 	FlagMedia
-	_
+	FlagCensored
 	FlagModIcon
 	FlagStaffIcon
-	FlagRedChannel
-	_
-	_
-	FlagBlueChannel
-	_
-	_
-	_
+	FlagRedChannel  // js: #ed1c24
+	_               // js: #ee7f22
+	_               // js: #39b54a
+	FlagBlueChannel // js: #25aae1
+	_               // js: #0e76bc
+	_               // js: #662d91
+	_               // js: #ed217c
 	FlagModChannel
-)
-
-const (
-	charset = "abcdefghijklmnopqrstuvwxyz0123456789"
 )
 
 var (
@@ -53,15 +48,14 @@ var (
 	ErrNotConnected     = errors.New("not connected")
 	ErrAlreadyConnected = errors.New("already connected")
 	ErrConnectionClosed = errors.New("connection closed")
-	ErrRetryEnds        = errors.New("connection closed")
+	ErrRetryEnds        = errors.New("retry ends")
+	ErrCLimited         = errors.New("climited")
 
-	ErrLoginFailed     = errors.New("failed to login")
-	ErrInvalidResponse = errors.New("invalid response")
-	ErrNoArgument      = errors.New("no argument")
-	ErrTimeout         = errors.New("timeout")
+	ErrLoginFailed = errors.New("failed to login")
+	ErrNoArgument  = errors.New("no argument")
+	ErrTimeout     = errors.New("timeout")
 
 	ErrRateLimited          = errors.New("rate limited")
-	ErrCLimited             = errors.New("climited")
 	ErrMessageLength        = errors.New("message length exceeded")
 	ErrFloodWarning         = errors.New("flood warning")
 	ErrFloodBanned          = errors.New("flood banned")
@@ -72,34 +66,27 @@ var (
 	ErrMustLogin            = errors.New("must login")
 	ErrProxyBanned          = errors.New("proxy banned")
 	ErrVerificationRequired = errors.New("verification required")
-
-	ErrUpdateFailed    = errors.New("update failed")
-	ErrClearFailed     = errors.New("clear failed")
-	ErrAddModFailed    = errors.New("clear failed")
-	ErrUpdateModFailed = errors.New("clear failed")
-	ErrRemoveModFailed = errors.New("clear failed")
+	ErrOfflineLimit         = errors.New("offline message limit")
 
 	ErrBadAlias = errors.New("bad alias")
 	ErrBadLogin = errors.New("bad login")
 
-	ErrPremiumExpired = errors.New("premium expired")
-
-	ErrInvalidUsername = errors.New("invalid username")
-	ErrInvalidArgument = errors.New("invalid argument")
-	ErrOfflineLimit    = errors.New("offline message limit")
-
-	ErrSetTokenFailed = errors.New("settoken failed")
-	ErrGCMRegFailed   = errors.New("GCM register failed")
-	ErrGCMUnregFailed = errors.New("GCM unregister failed")
+	ErrRequestFailed = errors.New("request failed")
 )
 
 var (
 	AnonSeedRe         = regexp.MustCompile(`<n\d{4}/>`)
 	NameColorRe        = regexp.MustCompile(`<n([\da-fA-F]{1,6})\/>`)
 	FontStyleRe        = regexp.MustCompile(`<f x([\da-fA-F]+)?="([\d\w]+)?">`)
+	NameFontTag        = regexp.MustCompile(`<[nf]\s[^>]*>`)
 	PrivateFontStyleRe = regexp.MustCompile(`<g x(\d+)?s([\da-fA-F]+)?="([\d\w]+)?">`)
-	HtmlTagRe          = regexp.MustCompile(`<.*?>`)
-	NameFontTag        = regexp.MustCompile(`<[nf][^>]*>`)
+
+	// Go does not support negative lookahead `<(?!br\s*\/?>).*?>`.
+	// This alternative will match either the `<br>` and `<br/>` tags (captured in group 1)
+	// or any other HTML tags (captured in group 2).
+	// Then the `ReplaceAllString(text, "$1")` method will then keep the content matched by group 1
+	// and remove the content matched by group 2.
+	HtmlTagRe = regexp.MustCompile(`(<br\s*\/?>)|(<[^>]+>)`)
 )
 
 var GroupPermissions = map[string]int64{

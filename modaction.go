@@ -72,13 +72,13 @@ var ModactionTmpl = map[string]string{
 
 // ModAction represents a moderation action.
 type ModAction struct {
-	ID     int
-	Type   string
-	User   string
-	IP     string
-	Target string
-	Time   time.Time
-	Extra  string
+	ID     int       // ID is the unique identifier of the moderation action.
+	Type   string    // Type is the type of the moderation action, e.g., "emod", "brdc", "cinm", "chan", "cntr", etc.
+	User   string    // User is the name of the moderator who performed the action.
+	IP     string    // IP is the IP address of the moderator who performed the action.
+	Target string    // Target is the name of the user that the action was performed on.
+	Time   time.Time // Time is the timestamp when the action was performed.
+	Extra  string    // Extra is any additional information or context related to the moderation action.
 }
 
 // ExtraAsSliceInt returns the Extra field as a slice of int64.
@@ -118,6 +118,7 @@ func (ma *ModAction) ExtraDescription() (ret GroupInfo) {
 }
 
 // String returns a string representation of the ModAction.
+// TODO: use `strings.Builder` instead.
 func (ma *ModAction) String() (actionDesc string) {
 	actionDesc = ModactionTmpl["action_desc_"+ma.Type]
 	switch ma.Type {
@@ -253,6 +254,7 @@ func (ma *ModAction) String() (actionDesc string) {
 	if ma.Target != "" {
 		actionDesc = strings.ReplaceAll(actionDesc, "*target*", ma.Target)
 	}
+
 	return
 }
 

@@ -13,19 +13,19 @@ type Number interface {
 
 // Config represents a configuration object.
 type Config struct {
-	Username  string   `json:"username"`   // Username of the configuration.
-	Password  string   `json:"password"`   // Password of the configuration.
-	AnonName  string   `json:"anon_name"`  // Anonymous name of the configuration.
-	Groups    []string `json:"groups"`     // List of groups in the configuration.
-	NameColor string   `json:"name_color"` // Name color in the configuration.
-	TextColor string   `json:"text_color"` // Text color in the configuration.
-	TextFont  string   `json:"text_font"`  // Text font in the configuration.
-	TextSize  int      `json:"text_size"`  // Text size in the configuration.
-	SessionID string   `json:"session_id"` // Session ID in the configuration.
-	EnableBG  bool     `json:"enable_bg"`  // Enable background in the configuration.
-	EnablePM  bool     `json:"enable_pm"`  // Enable private messages in the configuration.
-	Debug     bool     `json:"debug"`      // Debug mode in the configuration.
-	Prefix    string   `json:"prefix"`     // Prefix for commands in the configuration.
+	Username  string   `json:"username"`  // Username of the configuration.
+	Password  string   `json:"password"`  // Password of the configuration.
+	AnonName  string   `json:"anonname"`  // Anonymous name of the configuration.
+	Groups    []string `json:"groups"`    // List of groups in the configuration.
+	NameColor string   `json:"namecolor"` // Name color in the configuration.
+	TextColor string   `json:"textcolor"` // Text color in the configuration.
+	TextFont  string   `json:"textfont"`  // Text font in the configuration.
+	TextSize  int      `json:"textsize"`  // Text size in the configuration.
+	SessionID string   `json:"sessionid"` // Session ID in the configuration.
+	EnableBG  bool     `json:"enablebg"`  // Enable background in the configuration.
+	EnablePM  bool     `json:"enablepm"`  // Enable private messages in the configuration.
+	Debug     bool     `json:"debug"`     // Debug mode in the configuration.
+	Prefix    string   `json:"prefix"`    // Prefix for commands in the configuration.
 }
 
 // User represents a user object.
@@ -123,7 +123,7 @@ func (gi *GroupInfo) GetTitle() string {
 }
 
 // KeyValue represents a key-value pair
-// This is a function helper for "emod" ModAction parsing.
+// This is a struct helper for "emod" ModAction parsing.
 type KeyValue struct {
 	Key   string
 	Value int64

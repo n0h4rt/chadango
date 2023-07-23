@@ -46,29 +46,32 @@ func (p *Private) Connect(ctx context.Context) (err error) {
 
 	p.context, p.cancelCtx = context.WithCancel(ctx)
 
+	log.Debug().Str("Name", p.Name).Msg("Connecting")
+
 	err = p.connect()
 	if err != nil {
 		p.cancelCtx()
 	}
 
 	p.Connected = true
+
 	return
 }
 
 func (p *Private) connect() (err error) {
+	defer func() {
+		if err != nil {
+			if p.ws != nil {
+				p.ws.Close()
+			}
+			log.Debug().Str("Name", p.Name).Err(err).Msg("Connect failed")
+		}
+	}()
+
 	var ok bool
 	if p.token, ok = p.App.API.GetCookie("auth.chatango.com"); !ok {
 		return ErrLoginFailed
 	}
-
-	log.Debug().Str("Name", p.Name).Msg("Connecting")
-
-	defer func() {
-		if err != nil {
-			log.Debug().Str("Name", p.Name).Err(err).Msg("Connect failed")
-			p.ws.Close()
-		}
-	}()
 
 	p.ws = &WebSocket{
 		OnError: p.wsOnError,
@@ -103,12 +106,15 @@ func (p *Private) connect() (err error) {
 		}
 		p.events <- frame
 	}
+
 	return ErrBadLogin
 
 OK:
 	p.ws.Sustain(p.context)
 	go p.listen()
+
 	log.Debug().Str("Name", p.Name).Msg("Connected")
+
 	return
 }
 
@@ -158,9 +164,11 @@ func (p *Private) Disconnect() {
 	if p.backoff != nil {
 		p.backoff.Cancel()
 	}
+
 	if !p.Connected {
 		return
 	}
+
 	p.Connected = false
 	p.cancelCtx()
 	p.ws.Close()
@@ -188,6 +196,7 @@ func (p *Private) Reconnect() (err error) {
 			return
 		}
 	}
+
 	// Either canceled or reached the maximum retries.
 	return ErrRetryEnds
 }
@@ -197,6 +206,7 @@ func (p *Private) Send(args ...string) error {
 	if !p.ws.Connected {
 		return ErrNotConnected
 	}
+
 	length := len(args)
 	if length == 0 {
 		return ErrNoArgument
@@ -207,6 +217,7 @@ func (p *Private) Send(args ...string) error {
 	terminator := args[length-1]
 	args = args[:length-1]
 	command := strings.Join(args, ":")
+
 	return p.ws.Send(command + terminator)
 }
 
@@ -214,7 +225,7 @@ func (p *Private) Send(args ...string) error {
 // First, a `p.takeOver` request will be made and it will wait until the listener goroutine catches it.
 // Then, the `args` will be sent to the server.
 // Each time a frame is received, the `callback` function is invoked and passed the frame.
-// The `callback` should return `true` if a correct frame is acquired, and `false` otherwise.
+// The `callback` should return `false` if a correct frame is acquired, and `true` otherwise.
 func (p *Private) SyncSendWithTimeout(callback func(string) bool, timeout time.Duration, args ...string) (err error) {
 	ctx, cancel := context.WithTimeout(p.context, timeout)
 	defer cancel()
@@ -241,7 +252,7 @@ func (p *Private) SyncSendWithTimeout(callback func(string) bool, timeout time.D
 				close(p.events)
 				return ErrConnectionClosed
 			}
-			if callback(strings.TrimRight(frame, "\r\n\x00")) {
+			if !callback(strings.TrimRight(frame, "\r\n\x00")) {
 				return
 			}
 		}
@@ -254,37 +265,52 @@ func (p *Private) SyncSend(cb func(string) bool, text ...string) error {
 	return p.SyncSendWithTimeout(cb, SYNC_SEND_TIMEOUT, text...)
 }
 
-// SendMessage sends a private message with the specified text to the username.
-func (p *Private) SendMessage(username, text string) (err error) {
+// SendMessage sends a private message to the specified username with the given text and optional arguments.
+// It returns an error if any occurs during the message sending process.
+// The text can include formatting placeholders (%s, %d, etc.), and optional arguments can be provided to fill in these placeholders.
+// The function also handles a flood warning, a flood ban, and the maximum number of unread messages (51) has been reached.
+// The function replaces newlines with the `<br/>` HTML tag to format the message properly.
+func (p *Private) SendMessage(username, text string, a ...any) (err error) {
 	cb := func(frame string) bool {
 		head, _, _ := strings.Cut(frame, ":")
 		switch head {
 		case "show_fw":
 			err = ErrFloodWarning
-			return true
+			return false
 		case "toofast":
 			err = ErrFloodBanned
-			return true
+			return false
 		case "show_offline_limit":
 			// The maximum number of unread messages is 51.
 			// show_offline_limit:nekonyan
 			err = ErrOfflineLimit
-			return true
+			return false
 		default:
 			p.events <- frame
 		}
-		return false
+		return true
 	}
+
 	username = strings.ToLower(username)
+
+	text = fmt.Sprintf(text, a...)
 	text = fmt.Sprintf(`<n%s/><m v="1"><g x%02ds%s="%s">%s</g></m>`, p.NameColor, p.TextSize, p.TextColor, p.TextFont, text)
+
+	// Replacing newlines with the `<br/>` tag.
+	text = strings.ReplaceAll(text, "\r\n", "<br/>")
+	text = strings.ReplaceAll(text, "\n", "<br/>")
+
 	// The "msg" command does not produce a response, so we wait for 0.5 seconds to handle any potential errors that may occur.
 	// The potential errors include "show_fw", "toofast", and "show_offline_limit".
-	if err = p.SyncSendWithTimeout(cb, 500*time.Millisecond, "msg", username, text, "\r\n"); err == ErrTimeout {
-		return nil
+	if err2 := p.SyncSendWithTimeout(cb, 500*time.Millisecond, "msg", username, text, "\r\n"); err != nil {
+		return
+	} else if err2 != ErrTimeout {
+		return err2
 	}
 
 	// Notifies the PM server that the client has just been active.
 	p.WentActive()
+
 	return
 }
 
@@ -295,25 +321,24 @@ func (p *Private) Track(username string) (status UserStatus, err error) {
 		switch head {
 		case "track":
 			fields := strings.SplitN(data, ":", 3)
-			status = UserStatus{
-				User: &User{Name: fields[0]},
-				Info: fields[2],
-			}
+			status.User = &User{Name: fields[0]}
+			status.Info = fields[2]
 			switch fields[2] {
 			case "offline":
 				status.Time, _ = ParseTime(fields[1])
 			case "online", "app":
 				status.Idle, _ = time.ParseDuration(fields[1] + "m")
 			case "invalid":
-				err = ErrInvalidUsername
 			}
-			return true
+			return false
 		default:
 			p.events <- frame
 		}
-		return false
+		return true
 	}
+
 	err = p.SyncSend(cb, "track", username, "\r\n")
+
 	return
 }
 
@@ -334,13 +359,15 @@ func (p *Private) GetSettings() (setting PrivateSetting, err error) {
 					setting.EmailOfflineMsg = fields[i+1] == "on"
 				}
 			}
-			return true
+			return false
 		default:
 			p.events <- frame
 		}
-		return false
+		return true
 	}
+
 	err = p.SyncSend(cb, "settings", "\r\n")
+
 	return
 }
 
@@ -352,15 +379,19 @@ func (p *Private) SetSettings(setting PrivateSetting) (err error) {
 		}
 		return "off"
 	}
+
 	if err = p.Send("setsettings", "disable_idle_time", onoff(setting.DisableIdleTime), "\r\n"); err != nil {
 		return
 	}
+
 	if err = p.Send("setsettings", "allow_anon", onoff(setting.AllowAnon), "\r\n"); err != nil {
 		return
 	}
+
 	if err = p.Send("setsettings", "email_offline_msg", onoff(setting.EmailOfflineMsg), "\r\n"); err != nil {
 		return
 	}
+
 	return
 }
 
@@ -378,19 +409,24 @@ func (p *Private) GetFriendList() (friendlist []UserStatus, err error) {
 				case "off":
 					status.Info = "offline"
 					status.Time, _ = ParseTime(fields[i+1])
-				case "on", "app":
+				case "on":
 					status.Info = "online"
+					status.Idle, _ = time.ParseDuration(fields[i+3] + "m")
+				case "app":
+					status.Info = "app"
 					status.Idle, _ = time.ParseDuration(fields[i+3] + "m")
 				}
 				friendlist = append(friendlist, status)
 			}
-			return true
+			return false
 		default:
 			p.events <- frame
 		}
-		return false
+		return true
 	}
+
 	err = p.SyncSend(cb, "wl", "\r\n")
+
 	return
 }
 
@@ -401,22 +437,27 @@ func (p *Private) AddFriend(username string) (status UserStatus, err error) {
 		switch head {
 		case "wladd":
 			fields := strings.SplitN(data, ":", 3)
-			status = UserStatus{User: &User{Name: fields[0]}}
+			status.User = &User{Name: fields[0]}
 			switch fields[1] {
 			case "off":
 				status.Info = "offline"
 				status.Time, _ = ParseTime(fields[2])
-			case "on", "app":
+			case "on":
 				status.Info = "online"
 				status.Idle, _ = time.ParseDuration(fields[2] + "m")
+			case "app":
+				status.Info = "app"
+				status.Idle, _ = time.ParseDuration(fields[2] + "m")
 			}
-			return true
+			return false
 		default:
 			p.events <- frame
 		}
-		return false
+		return true
 	}
+
 	err = p.SyncSend(cb, "wladd", username, "\r\n")
+
 	return
 }
 
@@ -426,13 +467,15 @@ func (p *Private) RemoveFriend(username string) (err error) {
 		head, _, _ := strings.Cut(frame, ":")
 		switch head {
 		case "wldelete":
-			return true
+			return false
 		default:
 			p.events <- frame
 		}
-		return false
+		return true
 	}
+
 	err = p.SyncSend(cb, "wldelete", username, "\r\n")
+
 	return
 }
 
@@ -445,13 +488,15 @@ func (p *Private) GetBlocked() (users []*User, err error) {
 			for _, username := range strings.Split(data, ":") {
 				users = append(users, &User{Name: username})
 			}
-			return true
+			return false
 		default:
 			p.events <- frame
 		}
-		return false
+		return true
 	}
+
 	err = p.SyncSend(cb, "getblock", "\r\n")
+
 	return
 }
 
@@ -461,13 +506,15 @@ func (p *Private) Block(username string) (err error) {
 		head, _, _ := strings.Cut(frame, ":")
 		switch head {
 		case "blocked":
-			return true
+			return false
 		default:
 			p.events <- frame
 		}
-		return false
+		return true
 	}
+
 	err = p.SyncSend(cb, "block", username, "\r\n")
+
 	return
 }
 
@@ -477,13 +524,15 @@ func (p *Private) Unblock(username string) (err error) {
 		head, _, _ := strings.Cut(frame, ":")
 		switch head {
 		case "unblocked":
-			return true
+			return false
 		default:
 			p.events <- frame
 		}
-		return false
+		return true
 	}
+
 	err = p.SyncSend(cb, "unblock", username, "\r\n")
+
 	return
 }
 
@@ -494,20 +543,23 @@ func (p *Private) ConnectUser(username string) (status UserStatus, err error) {
 		switch head {
 		case "connect":
 			fields := strings.SplitN(data, ":", 3)
-			status = UserStatus{User: &User{Name: fields[0]}, Info: fields[2]}
+			status.User = &User{Name: fields[0]}
+			status.Info = fields[2]
 			switch fields[2] {
 			case "offline":
 				status.Time, _ = ParseTime(fields[2])
 			case "online", "app":
 				status.Idle, _ = time.ParseDuration(fields[2] + "m")
 			}
-			return true
+			return false
 		default:
 			p.events <- frame
 		}
-		return false
+		return true
 	}
+
 	err = p.SyncSend(cb, "connect", username, "\r\n")
+
 	return
 }
 
@@ -537,13 +589,15 @@ func (p *Private) GetPresence(usernames []string) (statuslist []UserStatus, err 
 				}
 				statuslist = append(statuslist, status)
 			}
-			return true
+			return false
 		default:
 			p.events <- frame
 		}
-		return false
+		return true
 	}
+
 	err = p.SyncSend(cb, "statuslist", strings.Join(usernames, ";"), "\r\n")
+
 	return
 }
 
@@ -554,12 +608,13 @@ func (p *Private) ProfileRefresh() error {
 		switch head {
 		case "miu":
 			p.events <- frame
-			return true
+			return false
 		default:
 			p.events <- frame
 		}
-		return false
+		return true
 	}
+
 	return p.SyncSend(cb, "miu", "\r\n")
 }
 
@@ -602,6 +657,7 @@ func (p *Private) wsOnError(e error) {
 	if p.Connected {
 		if p.Reconnect() == nil {
 			log.Debug().Str("Name", p.Name).Msg("Reconnected")
+
 			event := &Event{
 				Type:      OnPrivateReconnected,
 				Private:   p,
@@ -627,6 +683,7 @@ func (p *Private) wsOnFrame(frame string) {
 	defer func() {
 		if err := recover(); err != nil {
 			log.Error().Str("Name", p.Name).Str("Frame", frame).Msgf("Error: %s", err)
+
 			event := &Event{
 				Type:      OnError,
 				Private:   p,
@@ -636,6 +693,7 @@ func (p *Private) wsOnFrame(frame string) {
 			p.App.Dispatch(event)
 		}
 	}()
+
 	head, data, _ := strings.Cut(frame, ":")
 	switch head {
 	case "":
@@ -715,6 +773,7 @@ func (p *Private) eventSellerName(data string) {
 // This event is triggered when the same account initiates another PM session.
 func (p *Private) eventKickedOff() {
 	p.Disconnect()
+
 	event := &Event{
 		Type:      OnPrivateKickedOff,
 		Private:   p,
@@ -726,6 +785,7 @@ func (p *Private) eventKickedOff() {
 // eventMessage handles the message event.
 func (p *Private) eventMessage(data string) {
 	message := ParsePrivateMessage(data, p)
+
 	event := &Event{
 		Type:      OnPrivateMessage,
 		Private:   p,
@@ -739,6 +799,7 @@ func (p *Private) eventMessage(data string) {
 // eventOfflineMessage handles the offline message event.
 func (p *Private) eventOfflineMessage(data string) {
 	message := ParsePrivateMessage(data, p)
+
 	event := &Event{
 		Type:      OnPrivateOfflineMessage,
 		Private:   p,
@@ -752,6 +813,7 @@ func (p *Private) eventOfflineMessage(data string) {
 // eventFriendOnline handles the friend online event.
 func (p *Private) eventFriendOnline(data string) {
 	username, _, _ := strings.Cut(data, ":")
+
 	event := &Event{
 		Type:      OnPrivateFriendOnline,
 		Private:   p,
@@ -764,6 +826,7 @@ func (p *Private) eventFriendOnline(data string) {
 // eventFriendOnlineApp handles the friend online (app) event.
 func (p *Private) eventFriendOnlineApp(data string) {
 	username, _, _ := strings.Cut(data, ":")
+
 	event := &Event{
 		Type:      OnPrivateFriendOnlineApp,
 		Private:   p,
@@ -776,6 +839,7 @@ func (p *Private) eventFriendOnlineApp(data string) {
 // eventFriendOffline handles the friend offline event.
 func (p *Private) eventFriendOffline(data string) {
 	username, _, _ := strings.Cut(data, ":")
+
 	event := &Event{
 		Type:      OnPrivateFriendOffline,
 		Private:   p,
@@ -788,6 +852,7 @@ func (p *Private) eventFriendOffline(data string) {
 // eventIdleUpdate handles the friend idle update event.
 func (p *Private) eventIdleUpdate(data string) {
 	username, onoff, _ := strings.Cut(data, ":")
+
 	var event *Event
 	if onoff == "0" {
 		event = &Event{

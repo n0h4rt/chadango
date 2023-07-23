@@ -19,7 +19,7 @@ These are some of the features, but not limited to:
 1. Each event is handled by its own goroutine.
 2. Lightweight.
 3. Some features are wrapped into solicited style (e.g., getting user list, online statuses, etc.).
-4. TBA.
+4. Extensible.
 
 ## Installation
 To run the example file, please follow the steps below:
@@ -66,12 +66,12 @@ import (
 
 func main() {
 	config := &dango.Config{
-		Username: "username",
-		Password: "password",
+		Username: "username", // Change this
+		Password: "password", // Change this
 		Prefix:   ".",
-		EnableBG: true
+		EnableBG: true,
 		EnablePM: true,
-		Groups:   []string{"groupchat1", "groupchat2"},
+		Groups:   []string{"groupchat1", "groupchat2"}, // Change this
 	}
 
 	app := dango.New(config)
@@ -85,7 +85,7 @@ func main() {
 	ctx := context.Background()
 	app.Start(ctx)
 
-	// The `app.Park()` call is blocking, use CTRL + C to stop the bot.
+	// The `app.Park()` call is blocking, use CTRL + C to stop the application.
 	// Use this if it is the top layer application.
 	app.Park()
 }
@@ -112,7 +112,6 @@ func OnEcho(event *dango.Event, context *dango.Context) {
 
 ## Dependencies
 The Chadango library has the following dependencies:
-- [github.com/texttheater/golang-levenshtein](https://github.com/texttheater/golang-levenshtein): A library for computing Levenshtein distance.
 - [github.com/rs/zerolog](https://github.com/rs/zerolog): Zero Allocation JSON Logger.
 - [github.com/stretchr/testify](https://github.com/stretchr/testify): A toolkit with common assertions and mocks that plays nicely with the standard library.
 
@@ -123,4 +122,4 @@ Contributions are welcome! If you find any issues or have suggestions for improv
 Chadango is licensed under the [MIT License](https://opensource.org/license/mit/).
 
 ## Contact
-You can find me, [khususme](https://khususme.chatango.com), available from 21:00 to 23:00 UTC-7. Feel free to reach out if you have any questions, suggestions, or just want to chat about Chadango!
+You can find me in [khususme](https://khususme.chatango.com), available from 21:00 to 23:00 UTC-7. Feel free to reach out if you have any questions, suggestions, or just want to chat about Chadango!

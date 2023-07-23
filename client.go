@@ -11,14 +11,14 @@ import (
 // It implements `golang.org/x/net/websocket` under the hood and wraps it into a channel,
 // allowing it to be select-able along with other channels.
 type WebSocket struct {
-	Connected bool
-	Events    chan string
-	OnError   func(error)
+	Connected bool        // Connected indicates whether the WebSocket connection is currently active.
+	Events    chan string // Events is a channel for receiving WebSocket events and messages.
+	OnError   func(error) // OnError is a callback function that will be called in case of an error during WebSocket operation.
 
-	url        string
-	client     *websocket.Conn
-	runCtx     context.Context
-	cancelFunc context.CancelFunc
+	url       string             // url is the WebSocket server URL.
+	client    *websocket.Conn    // client is the underlying WebSocket connection.
+	context   context.Context    // runCtx is the context used for managing the WebSocket connection's lifecycle.
+	cancelCtx context.CancelFunc // cancelFunc is the function to cancel the WebSocket connection's lifecycle context.
 }
 
 // Connect establishes a WebSocket connection to the specified URL.
@@ -42,8 +42,8 @@ func (w *WebSocket) Connect(url string) (err error) {
 func (w *WebSocket) Close() {
 	if w.Connected {
 		w.Connected = false
-		if w.cancelFunc != nil {
-			w.cancelFunc()
+		if w.cancelCtx != nil {
+			w.cancelCtx()
 		}
 		w.client.Close()
 	}
@@ -51,7 +51,7 @@ func (w *WebSocket) Close() {
 
 // Sustain starts pumping events and keeps the WebSocket connection alive.
 func (w *WebSocket) Sustain(ctx context.Context) {
-	w.runCtx, w.cancelFunc = context.WithCancel(ctx)
+	w.context, w.cancelCtx = context.WithCancel(ctx)
 	go w.pumpEvent()
 	go w.keepAlive()
 }
@@ -90,7 +90,7 @@ func (w *WebSocket) keepAlive() {
 			if w.Send("\r\n") != nil {
 				return
 			}
-		case <-w.runCtx.Done():
+		case <-w.context.Done():
 			return
 		}
 	}

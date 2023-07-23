@@ -33,6 +33,7 @@ func (app *Application) AddHandler(handler Handler) *Application {
 	if ch, ok := handler.(*CommandHandler); ok {
 		ch.app = app
 	}
+
 	app.handlers = append(app.handlers, handler)
 	return app
 }
@@ -62,12 +63,14 @@ func (app *Application) Dispatch(event *Event) {
 					App:     app,
 					BotData: app.Persistence.GetBotData(),
 				}
+
 				if event.IsPrivate && event.User != nil && !event.User.IsAnon {
 					context.ChatData = app.Persistence.GetChatData(strings.ToLower(event.User.Name))
 				} else {
 					context.ChatData = app.Persistence.GetChatData(event.Group.Name)
 				}
 			}
+
 			handler.Invoke(event, context)
 			break
 		}
@@ -80,11 +83,13 @@ func (app *Application) Initialize() {
 		app.Persistence = new(Persistence)
 	}
 	app.Persistence.Initialize()
+
 	app.API = &API{
 		Username: app.Config.Username,
 		Password: app.Config.Password,
 	}
 	app.API.Initialize()
+
 	app.Groups = NewSyncMap[string, *Group]()
 	app.checkConfig()
 	app.initialized = true
@@ -114,18 +119,25 @@ func (app *Application) Start(ctx context.Context) {
 	if !app.initialized {
 		panic("the application is not initialized")
 	}
+
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	app.context, app.cancelCtx = context.WithCancel(ctx)
+
 	for _, groupName := range app.Config.Groups {
 		go app.JoinGroup(groupName)
 	}
 	if app.Config.EnablePM {
 		go app.ConnectPM()
 	}
+
+	app.Persistence.StartAutoSave(app.context)
+
 	app.interruptChan = make(chan os.Signal, 1)
 	signal.Notify(app.interruptChan, os.Interrupt, syscall.SIGTERM)
+
+	app.Dispatch(&Event{Type: OnStart})
 }
 
 // Park waits for the application to stop or receive an interrupt signal.
@@ -139,12 +151,16 @@ func (app *Application) Park() {
 
 // Stop stops the application.
 func (app *Application) Stop() {
+	app.Dispatch(&Event{Type: OnStart})
+
 	var wg sync.WaitGroup
+
 	wg.Add(1)
 	go func() {
 		app.DisconnectPM()
 		wg.Done()
 	}()
+
 	cb := func(_ string, group *Group) bool {
 		wg.Add(1)
 		go func() {
@@ -154,6 +170,7 @@ func (app *Application) Stop() {
 		return false
 	}
 	app.Groups.Range(cb)
+
 	wg.Wait()
 	app.Persistence.Close()
 	app.cancelCtx()
@@ -165,9 +182,11 @@ func (app *Application) JoinGroup(groupName string) error {
 	if _, ok := app.Groups.Get(groupName); ok {
 		return ErrAlreadyConnected
 	}
+
 	if isGroup, err := app.API.IsGroup(groupName); err != nil || !isGroup {
 		return ErrNotAGroup
 	}
+
 	group := Group{
 		App:       app,
 		Name:      groupName,
@@ -183,7 +202,9 @@ func (app *Application) JoinGroup(groupName string) error {
 	if err := group.Connect(app.context); err != nil {
 		return err
 	}
+
 	app.Groups.Set(groupName, &group)
+
 	return nil
 }
 
@@ -195,6 +216,7 @@ func (app *Application) LeaveGroup(groupName string) error {
 		group.Disconnect()
 		return nil
 	}
+
 	return ErrNotConnected
 }
 
@@ -208,6 +230,7 @@ func (app *Application) ConnectPM() error {
 	app.Private.TextFont = app.Config.TextFont
 	app.Private.TextSize = app.Config.TextSize
 	app.Private.SessionID = app.Config.SessionID
+
 	return app.Private.Connect(app.context)
 }
 
@@ -216,6 +239,7 @@ func (app *Application) DisconnectPM() {
 	app.Private.Disconnect()
 }
 
+// New creates a new instance of the `*Application` with the provided configuration.
 func New(config *Config) *Application {
 	return &Application{Config: config}
 }
