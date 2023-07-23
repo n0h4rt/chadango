@@ -17,7 +17,7 @@ type WebSocket struct {
 
 	url       string             // url is the WebSocket server URL.
 	client    *websocket.Conn    // client is the underlying WebSocket connection.
-	context   context.Context    // runCtx is the context used for managing the WebSocket connection's lifecycle.
+	context   context.Context    // context is the context used for managing the WebSocket connection's lifecycle.
 	cancelCtx context.CancelFunc // cancelFunc is the function to cancel the WebSocket connection's lifecycle context.
 }
 
