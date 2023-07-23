@@ -502,7 +502,7 @@ func (mb MessageStyle) GetForm() url.Values {
 		form.Set(tag, fmt.Sprintf("%v", value.Interface()))
 	}
 
-	return
+	return form
 }
 
 // GetStyle retrieves the message style of the specified username.
