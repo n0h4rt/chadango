@@ -9,10 +9,19 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// Persistence is responsible for loading and saving data to a file periodically.
+type Persistence interface {
+	Initialize() error
+	Runner(context.Context)
+	Close() error
+	GetBotData() *SyncMap[string, any]
+	GetChatData(string) *SyncMap[string, any]
+	DelChatData(string)
+}
+
+// GobPersistence is responsible for loading and saving data to a gob file periodically.
 // If the filename is set to an empty string, it will disable auto-saving.
 // If the interval is set to less than 1 minute, it will be adjusted to 30 minutes.
-type Persistence struct {
+type GobPersistence struct {
 	Filename  string                                 // File name for the data.
 	Interval  time.Duration                          // Interval for auto-saving.
 	BotData   SyncMap[string, any]                   // Map to store bot-related data.
@@ -21,8 +30,12 @@ type Persistence struct {
 	cancelCtx context.CancelFunc                     // Function for stopping auto save operations.
 }
 
-// Load loads the data from the file into the Persistence struct.
-func (p *Persistence) Load() error {
+// Load loads the data from the file into the GobPersistence struct.
+func (p *GobPersistence) Load() error {
+	if p.Filename == "" {
+		return nil
+	}
+
 	file, err := os.Open(p.Filename)
 	if err != nil {
 		return err
@@ -33,19 +46,19 @@ func (p *Persistence) Load() error {
 
 	err = decoder.Decode(&p.BotData)
 	if err != nil {
-		return err
+		log.Error().Str("Name", p.Filename).Err(err).Msg("GobPersistence decode BotData error.")
 	}
 
 	err = decoder.Decode(&p.ChatData)
 	if err != nil {
-		return err
+		log.Error().Str("Name", p.Filename).Err(err).Msg("GobPersistence decode ChatData error.")
 	}
 
 	return nil
 }
 
-// Save saves the data from the Persistence struct to the file.
-func (p *Persistence) Save() error {
+// Save saves the data from the GobPersistence struct to the file.
+func (p *GobPersistence) Save() error {
 	if p.Filename == "" {
 		return nil
 	}
@@ -60,30 +73,26 @@ func (p *Persistence) Save() error {
 
 	err = encoder.Encode(&p.BotData)
 	if err != nil {
-		return err
+		log.Error().Str("Name", p.Filename).Err(err).Msg("GobPersistence encode BotData error.")
 	}
 
 	err = encoder.Encode(&p.ChatData)
 	if err != nil {
-		return err
+		log.Error().Str("Name", p.Filename).Err(err).Msg("GobPersistence encode ChatData error.")
 	}
 
 	return nil
 }
 
-// Initialize initializes the Persistence struct by loading the data from the file and starting the auto save routine.
-func (p *Persistence) Initialize() error {
+// Initialize initializes the GobPersistence struct by loading the data from the file and starting the auto save routine.
+func (p *GobPersistence) Initialize() error {
 	p.BotData = NewSyncMap[string, any]()
 	p.ChatData = NewSyncMap[string, *SyncMap[string, any]]()
-
-	if p.Filename == "" {
-		return nil
-	}
 
 	return p.Load()
 }
 
-func (p *Persistence) StartAutoSave(ctx context.Context) {
+func (p *GobPersistence) Runner(ctx context.Context) {
 	if p.Filename == "" {
 		return
 	}
@@ -98,7 +107,7 @@ func (p *Persistence) StartAutoSave(ctx context.Context) {
 }
 
 // Close stops the auto save routine and saves the data to the file.
-func (p *Persistence) Close() error {
+func (p *GobPersistence) Close() error {
 	if p.cancelCtx != nil {
 		p.cancelCtx()
 	}
@@ -107,13 +116,13 @@ func (p *Persistence) Close() error {
 }
 
 // autoSave is a goroutine that periodically saves the data to the file.
-func (p *Persistence) autoSave() {
+func (p *GobPersistence) autoSave() {
 	ticker := time.NewTicker(p.Interval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
-			log.Debug().Str("Name", p.Filename).Msg("Persistence auto save")
+			log.Debug().Str("Name", p.Filename).Msg("GobPersistence auto save.")
 			p.Save()
 		case <-p.context.Done():
 			return
@@ -122,13 +131,13 @@ func (p *Persistence) autoSave() {
 }
 
 // GetBotData returns a pointer to the BotData.
-func (p *Persistence) GetBotData() *SyncMap[string, any] {
+func (p *GobPersistence) GetBotData() *SyncMap[string, any] {
 	return &p.BotData
 }
 
 // GetChatData returns a pointer to the ChatData for the given key.
 // If the ChatData does not exist, it creates a new one and returns it.
-func (p *Persistence) GetChatData(key string) *SyncMap[string, any] {
+func (p *GobPersistence) GetChatData(key string) *SyncMap[string, any] {
 	chatData, ok := p.ChatData.Get(key)
 	if !ok {
 		chatData = &SyncMap[string, any]{M: map[string]any{}}
@@ -139,6 +148,6 @@ func (p *Persistence) GetChatData(key string) *SyncMap[string, any] {
 }
 
 // DelChatData deletes the ChatData for the given key.
-func (p *Persistence) DelChatData(key string) {
+func (p *GobPersistence) DelChatData(key string) {
 	p.ChatData.Del(key)
 }

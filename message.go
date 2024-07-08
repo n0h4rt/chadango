@@ -210,6 +210,7 @@ func ParseGroupMessage(data string, group *Group) *Message {
 	// _ = fields[8]  // Omitted for now
 	msg.RawText = fields[9]
 	text := HtmlTagRe.ReplaceAllString(fields[9], "$1")
+	text = strings.ReplaceAll(text, "<br/>", "\n")
 	msg.Text = html.UnescapeString(text)
 
 	return msg

@@ -48,17 +48,6 @@ func (p *Private) Connect(ctx context.Context) (err error) {
 
 	log.Debug().Str("Name", p.Name).Msg("Connecting")
 
-	err = p.connect()
-	if err != nil {
-		p.cancelCtx()
-	}
-
-	p.Connected = true
-
-	return
-}
-
-func (p *Private) connect() (err error) {
 	defer func() {
 		if err != nil {
 			if p.ws != nil {
@@ -68,6 +57,20 @@ func (p *Private) connect() (err error) {
 		}
 	}()
 
+	err = p.connect()
+	if err != nil {
+		p.cancelCtx()
+		return
+	}
+
+	p.Connected = true
+
+	log.Debug().Str("Name", p.Name).Msg("Connected")
+
+	return
+}
+
+func (p *Private) connect() (err error) {
 	var ok bool
 	if p.token, ok = p.App.API.GetCookie("auth.chatango.com"); !ok {
 		return ErrLoginFailed
@@ -103,8 +106,9 @@ func (p *Private) connect() (err error) {
 			goto OK
 		case "DENIED":
 			return ErrBadLogin
+		default:
+			p.events <- frame
 		}
-		p.events <- frame
 	}
 
 	return ErrBadLogin
@@ -112,8 +116,6 @@ func (p *Private) connect() (err error) {
 OK:
 	p.ws.Sustain(p.context)
 	go p.listen()
-
-	log.Debug().Str("Name", p.Name).Msg("Connected")
 
 	return
 }
@@ -645,7 +647,7 @@ func (p *Private) PropagateEvent(frame string) {
 	p.events <- frame
 }
 
-// GetContext returns the context of the private chat.
+// GetContext returns the `context.Context` of the private chat.
 func (p *Private) GetContext() context.Context {
 	return p.context
 }
@@ -663,7 +665,7 @@ func (p *Private) wsOnError(e error) {
 				Private:   p,
 				IsPrivate: true,
 			}
-			p.App.Dispatch(event)
+			p.App.dispatchEvent(event)
 			return
 		}
 	}
@@ -675,7 +677,7 @@ func (p *Private) wsOnError(e error) {
 		Private:   p,
 		IsPrivate: true,
 	}
-	p.App.Dispatch(event)
+	p.App.dispatchEvent(event)
 }
 
 // wsOnFrame handles incoming WebSocket frames.
@@ -690,7 +692,7 @@ func (p *Private) wsOnFrame(frame string) {
 				IsPrivate: true,
 				Error:     err,
 			}
-			p.App.Dispatch(event)
+			p.App.dispatchEvent(event)
 		}
 	}()
 
@@ -761,7 +763,7 @@ func (p *Private) eventOK() {
 		Private:   p,
 		IsPrivate: true,
 	}
-	p.App.Dispatch(event)
+	p.App.dispatchEvent(event)
 }
 
 // eventSellerName handles the seller name event with the session ID.
@@ -779,7 +781,7 @@ func (p *Private) eventKickedOff() {
 		Private:   p,
 		IsPrivate: true,
 	}
-	p.App.Dispatch(event)
+	p.App.dispatchEvent(event)
 }
 
 // eventMessage handles the message event.
@@ -793,7 +795,7 @@ func (p *Private) eventMessage(data string) {
 		Message:   message,
 		User:      message.User,
 	}
-	p.App.Dispatch(event)
+	p.App.dispatchEvent(event)
 }
 
 // eventOfflineMessage handles the offline message event.
@@ -807,7 +809,7 @@ func (p *Private) eventOfflineMessage(data string) {
 		Message:   message,
 		User:      message.User,
 	}
-	p.App.Dispatch(event)
+	p.App.dispatchEvent(event)
 }
 
 // eventFriendOnline handles the friend online event.
@@ -820,7 +822,7 @@ func (p *Private) eventFriendOnline(data string) {
 		IsPrivate: true,
 		User:      &User{Name: username},
 	}
-	p.App.Dispatch(event)
+	p.App.dispatchEvent(event)
 }
 
 // eventFriendOnlineApp handles the friend online (app) event.
@@ -833,7 +835,7 @@ func (p *Private) eventFriendOnlineApp(data string) {
 		IsPrivate: true,
 		User:      &User{Name: username},
 	}
-	p.App.Dispatch(event)
+	p.App.dispatchEvent(event)
 }
 
 // eventFriendOffline handles the friend offline event.
@@ -846,7 +848,7 @@ func (p *Private) eventFriendOffline(data string) {
 		IsPrivate: true,
 		User:      &User{Name: username},
 	}
-	p.App.Dispatch(event)
+	p.App.dispatchEvent(event)
 }
 
 // eventIdleUpdate handles the friend idle update event.
@@ -869,7 +871,7 @@ func (p *Private) eventIdleUpdate(data string) {
 			User:      &User{Name: username},
 		}
 	}
-	p.App.Dispatch(event)
+	p.App.dispatchEvent(event)
 }
 
 // eventUpdateGroupInfo handles the update user profile event.
@@ -880,5 +882,5 @@ func (p *Private) eventUpdateUserProfile(data string) {
 		IsPrivate: true,
 		User:      &User{Name: data},
 	}
-	p.App.Dispatch(event)
+	p.App.dispatchEvent(event)
 }
