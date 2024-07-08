@@ -258,6 +258,7 @@ func (api *API) GetGroupList() (groups GroupsList, err error) {
 
 // MiniProfile represents a mini profile of a user.
 type MiniProfile struct {
+	Image    string       // Image URL
 	XMLName  xml.Name     `xml:"mod"`  // Tag name
 	Body     QueryEscaped `xml:"body"` // Mini profile info
 	Gender   string       `xml:"s"`    // Gender (M, F)
@@ -345,6 +346,7 @@ func (api *API) GetMiniProfile(username string) (profile MiniProfile, err error)
 	}
 
 	err = xml.Unmarshal(body, &profile)
+	profile.Image = fmt.Sprintf("https://fp.chatango.com/profileimg/%s/%s/%s/full.jpg", path0, path1, username)
 
 	return
 }
@@ -384,6 +386,7 @@ func (api *API) GetFullProfile(username string) (profile FullProfile, err error)
 
 // MessageBackground represents the background information of a user.
 type MessageBackground struct {
+	Image        string // Background image URL
 	Align        string `xml:"align,attr"`  // Background image alignment
 	Alpha        int    `xml:"bgalp,attr"`  // Background color transparency
 	Color        string `xml:"bgc,attr"`    // Background color
@@ -443,6 +446,7 @@ func (api *API) GetBackground(username string) (background MessageBackground, er
 	}
 
 	err = xml.Unmarshal(body, &background)
+	background.Image = fmt.Sprintf("https://ust.chatango.com/profileimg/%s/%s/%s/msgbg.jpg", path0, path1, username)
 
 	return
 }
