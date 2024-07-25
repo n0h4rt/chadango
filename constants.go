@@ -25,6 +25,29 @@ const (
 )
 
 const (
+	API_LOGIN          = "https://chatango.com/login"
+	API_GRP_LIST_UPD   = "https://chatango.com/groupslistupdate"
+	API_MSG_BG_IMG     = "https://ust.chatango.com/profileimg/%s/%s/%s/msgbg.jpg"
+	API_MSG_BG_XML     = "https://ust.chatango.com/profileimg/%s/%s/%s/msgbg.xml"
+	API_UPD_MSG_BG     = "https://chatango.com/updatemsgbg"
+	API_SEARCH_PEOPLE  = "https://chatango.com/search"
+	API_UPLOAD_IMG     = "https://chatango.com/uploadimg"
+	API_MSG_STYLE_JSON = "https://ust.chatango.com/profileimg/%s/%s/%s/msgstyles.json"
+	API_UPD_MSG_STYLE  = "https://chatango.com/updatemsgstyles"
+	API_SET_TOKEN_GCM  = "https://chatango.com/settokenapp"
+	API_REG_GCM        = "https://chatango.com/updategcm"
+	API_UNREG_GCM      = "https://chatango.com/unregistergcm"
+	API_UM_THUMB       = "https://ust.chatango.com/um/%s/%s/%s/img/t_%%d.jpg"
+	API_UM_LARGE       = "https://ust.chatango.com/um/%s/%s/%s/img/l_%%d.jpg"
+
+	API_CHECK_USER     = "https://st.chatango.com/script/namecheckeraccsales"
+	API_CHECK_GROUP    = "https://chatango.com/checkname"
+	API_MINI_XML       = "https://ust.chatango.com/profileimg/%s/%s/%s/mod1.xml"
+	API_FULL_XML       = "https://ust.chatango.com/profileimg/%s/%s/%s/mod2.xml"
+	API_PHOTO_FULL_IMG = "https://fp.chatango.com/profileimg/%s/%s/%s/full.jpg"
+)
+
+const (
 	_ int64 = 1 << iota
 	_
 	FlagPremium
@@ -139,3 +162,17 @@ var GroupStatuses = map[string]int64{
 	"MISSING_6":                268435456,
 	"MISSING_7":                536870912,
 }
+
+type FontFamily int
+
+const (
+	FontFamilyArial FontFamily = iota
+	FontFamilyComic
+	FontFamilyGeorgia
+	FontFamilyHandwriting
+	FontFamilyImpact
+	FontFamilyPalatino
+	FontFamilyPapyrus
+	FontFamilyTimes
+	FontFamilyTypewriter
+)

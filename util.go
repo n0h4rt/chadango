@@ -80,14 +80,9 @@ var (
 	}
 )
 
-// GetServer retrieves the server URL for the specified name.
-// This function takes a string as input and returns a URL string for a server based on the input string.
-// The returned URL is used for establishing a WebSocket connection.
-// The function uses a weighted round-robin algorithm to select a server based on the input string.
-// The input string is first converted to base36 integer by replacing "_" and "-" characters with "q".
-// The first and second halves of the modified string are used to calculate a modulus ratio.
-// The modulus ratio is then used to select a server based on its weight.
-// The function returns a default URL if no server is selected.
+// GetServer returns the server URL for a given name.
+// It uses a weighted round-robin algorithm to select a server based on a calculated modulus ratio.
+// If no server is selected, a default URL is returned.
 func GetServer(name string) string {
 	var (
 		totalWeight float64
@@ -261,4 +256,13 @@ func SaveConfig(filename string, config *Config) error {
 	}
 
 	return nil
+}
+
+func UsernameToURL(url, username string) string {
+	path0 := username[0:1]
+	path1 := username[0:1]
+	if len(username) > 1 {
+		path1 = username[1:2]
+	}
+	return fmt.Sprintf(url, path0, path1, username)
 }

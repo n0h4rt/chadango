@@ -13,7 +13,6 @@ import (
 type Application struct {
 	Config        *Config                 // Config holds the configuration for the application.
 	persistence   Persistence             // Persistence manages data persistence for the application.
-	API           *API                    // API provides access to various Chatango APIs used by the application.
 	Private       Private                 // Private represents the private chat functionality of the application.
 	Groups        SyncMap[string, *Group] // Groups stores the groups the application is connected to.
 	eventHandlers []Handler               // eventHandlers contains the registered event handlers for the application.
@@ -124,12 +123,6 @@ func (app *Application) Initialize() *Application {
 	}
 	app.persistence.Initialize()
 
-	app.API = &API{
-		Username: app.Config.Username,
-		Password: app.Config.Password,
-	}
-	app.API.Initialize()
-
 	app.Groups = NewSyncMap[string, *Group]()
 	app.checkConfig()
 	app.initialized = true
@@ -166,6 +159,8 @@ func (app *Application) Start(ctx context.Context) *Application {
 		ctx = context.Background()
 	}
 	app.context, app.cancelCtx = context.WithCancel(ctx)
+
+	initAPI(app.Config.Username, app.Config.Password, ctx)
 
 	for _, groupName := range app.Config.Groups {
 		go app.JoinGroup(groupName)
@@ -227,7 +222,7 @@ func (app *Application) JoinGroup(groupName string) error {
 		return ErrAlreadyConnected
 	}
 
-	if isGroup, err := app.API.IsGroup(groupName); err != nil || !isGroup {
+	if isGroup, err := publicAPI.IsGroup(groupName); err != nil || !isGroup {
 		return ErrNotAGroup
 	}
 
@@ -286,6 +281,16 @@ func (app *Application) DisconnectPM() {
 // GetContext returns the `context.Context` of the application.
 func (app *Application) GetContext() context.Context {
 	return app.context
+}
+
+// PrivateAPI returns the `PrivateAPI` used in the application.
+func (app *Application) PrivateAPI() *PrivateAPI {
+	return privateAPI
+}
+
+// PublicAPI returns the `PublicAPI` used in the application.
+func (app *Application) PublicAPI() *PublicAPI {
+	return publicAPI
 }
 
 // New creates a new instance of the Application with the provided configuration.

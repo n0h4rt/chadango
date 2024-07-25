@@ -71,8 +71,12 @@ func (p *Private) Connect(ctx context.Context) (err error) {
 }
 
 func (p *Private) connect() (err error) {
+	if err = privateAPI.Login(); err != nil {
+		return
+	}
+
 	var ok bool
-	if p.token, ok = p.App.API.GetCookie("auth.chatango.com"); !ok {
+	if p.token, ok = privateAPI.GetCookie("auth.chatango.com"); !ok {
 		return ErrLoginFailed
 	}
 
@@ -181,10 +185,7 @@ func (p *Private) Reconnect() (err error) {
 	p.ws.Close()
 
 	// Reinitialize the API.
-	if err = p.App.API.Initialize(); err != nil {
-		log.Error().Str("Name", "API").Err(err).Msg("Could not initialize the API")
-		return ErrLoginFailed
-	}
+	initAPI(p.App.Config.Username, p.App.Config.Password, p.App.context)
 
 	p.backoff = &Backoff{
 		Duration:    BASE_BACKOFF_DUR,
