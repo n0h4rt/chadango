@@ -74,7 +74,7 @@ func TestModAction_String(t *testing.T) {
 	ma3 := ma0[2]
 	expected3 := "perorist (127.0.0.1) changed auto-moderation to block nonsense messages (basic) and nonsense messages (advanced)."
 	result3 := ma3.String()
-	assert.Equal(t, expected3, result3, "String() should return the expected string for chrl type")
+	assert.Equal(t, expected3, result3, "String() should return the expected string for enlp type")
 
 	ma4 := ma0[3]
 	expected4 := "perorist (127.0.0.1) enabled auto-announcement every 60 seconds: 3 kata terserah"
@@ -84,7 +84,7 @@ func TestModAction_String(t *testing.T) {
 	ma5 := ma0[4]
 	expected5 := "perorist (127.0.0.1) edited group"
 	result5 := ma5.String()
-	assert.Equal(t, expected5, result5, "String() should return the expected string for enlp type")
+	assert.Equal(t, expected5, result5, "String() should return the expected string for egrp type")
 }
 
 func TestParseModActions(t *testing.T) {
