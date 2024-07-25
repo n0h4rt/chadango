@@ -78,17 +78,6 @@ func (g *Group) Connect(ctx context.Context) (err error) {
 
 	log.Debug().Str("Name", g.Name).Msg("Connecting")
 
-	err = g.connect()
-	if err != nil {
-		g.cancelCtx()
-	}
-
-	g.Connected = true
-
-	return
-}
-
-func (g *Group) connect() (err error) {
 	defer func() {
 		if err != nil {
 			if g.ws != nil {
@@ -99,6 +88,20 @@ func (g *Group) connect() (err error) {
 		}
 	}()
 
+	err = g.connect()
+	if err != nil {
+		g.cancelCtx()
+		return
+	}
+
+	g.Connected = true
+
+	log.Debug().Str("Name", g.Name).Msg("Connected")
+
+	return
+}
+
+func (g *Group) connect() (err error) {
 	g.ws = &WebSocket{
 		OnError: g.wsOnError,
 	}
@@ -144,8 +147,6 @@ func (g *Group) connect() (err error) {
 	g.initFields()
 	g.ws.Sustain(g.context)
 	go g.listen()
-
-	log.Debug().Str("Name", g.Name).Msg("Connected")
 
 	return
 }
@@ -247,7 +248,7 @@ func (g *Group) Send(args ...string) error {
 	return g.ws.Send(command + terminator)
 }
 
-// SyncSend will send the `args` and wait until receiving the correct reply or until timeout.
+// SyncSendWithTimeout will send the `args` and wait until receiving the correct reply or until timeout.
 // First, a `g.takeOver` request will be made and it will wait until the listener goroutine catches it.
 // Then, the `args` will be sent to the server.
 // Each time a frame is received, the `callback` function is invoked and passed the frame.
@@ -1203,7 +1204,7 @@ func (g *Group) PropagateEvent(frame string) {
 	g.events <- frame
 }
 
-// GetContext returns the context of the private chat.
+// GetContext returns the `context.Context` of the group chat.
 func (g *Group) GetContext() context.Context {
 	return g.context
 }
@@ -1219,7 +1220,7 @@ func (g *Group) wsOnError(e error) {
 				Type:  OnGroupReconnected,
 				Group: g,
 			}
-			g.App.Dispatch(event)
+			g.App.dispatchEvent(event)
 			return
 		}
 	}
@@ -1231,7 +1232,7 @@ func (g *Group) wsOnError(e error) {
 		Type:  OnGroupLeft,
 		Group: g,
 	}
-	g.App.Dispatch(event)
+	g.App.dispatchEvent(event)
 }
 
 // wsOnFrame handles incoming WebSocket frames.
@@ -1245,7 +1246,7 @@ func (g *Group) wsOnFrame(frame string) {
 				Group: g,
 				Error: err,
 			}
-			g.App.Dispatch(event)
+			g.App.dispatchEvent(event)
 		}
 	}()
 
@@ -1291,7 +1292,7 @@ func (g *Group) wsOnFrame(frame string) {
 		g.eventAllUserUnblocked(data)
 	case "updgroupinfo":
 		g.eventUpdateGroupInfo(data)
-	case "miu":
+	case "miu", "updateprofile":
 		g.eventUpdateUserProfile(data)
 	case "show_fw", "show_tb", "tb", "show_nlp", "show_nlp_tb", "nlptb":
 		fallthrough
@@ -1373,7 +1374,7 @@ func (g *Group) eventOK(data string) {
 		Type:  OnGroupJoined,
 		Group: g,
 	}
-	g.App.Dispatch(event)
+	g.App.dispatchEvent(event)
 }
 
 // eventMessageHistory handles the message history event.
@@ -1387,11 +1388,11 @@ func (g *Group) eventMessageHistory(data string) {
 		Message: message,
 		User:    message.User,
 	}
-	g.App.Dispatch(event)
+	g.App.dispatchEvent(event)
 }
 
 // eventInited handles the initialized event.
-func (g *Group) eventInited(data string) {
+func (g *Group) eventInited(string) {
 	// TODO: loading previous messages?
 	var offset int
 	var count int
@@ -1411,7 +1412,7 @@ func (g *Group) eventParticipantCount(data string) {
 		Type:  OnParticipantCountChange,
 		Group: g,
 	}
-	g.App.Dispatch(event)
+	g.App.dispatchEvent(event)
 }
 
 // eventMessage handles the message event.
@@ -1429,7 +1430,7 @@ func (g *Group) eventMessage(data string) {
 			Message: message,
 			User:    message.User,
 		}
-		g.App.Dispatch(event)
+		g.App.dispatchEvent(event)
 	} else {
 		g.TempMessages.Set(message.ID, message)
 	}
@@ -1450,7 +1451,7 @@ func (g *Group) eventMessageUpdate(data string) {
 			Message: message,
 			User:    message.User,
 		}
-		g.App.Dispatch(event)
+		g.App.dispatchEvent(event)
 	} else {
 		g.TempMessageIds.Set(oldID, newID)
 	}
@@ -1469,7 +1470,7 @@ func (g *Group) eventParticipant(data string) {
 	t, _ := ParseTime(fields[6])
 	userID, _ := strconv.Atoi(fields[2])
 
-	if fields[3] != "" {
+	if fields[3] != "None" {
 		user = &User{Name: fields[3]}
 	} else if fields[4] != "None" {
 		user = &User{Name: fields[4], IsAnon: true}
@@ -1526,7 +1527,7 @@ func (g *Group) eventParticipant(data string) {
 		}
 	}
 
-	g.App.Dispatch(event)
+	g.App.dispatchEvent(event)
 }
 
 // eventFlagsUpdate handles the flags update event.
@@ -1542,7 +1543,7 @@ func (g *Group) eventFlagsUpdate(data string) {
 		FlagRemoved: removed,
 	}
 	g.Flag = newFlag
-	g.App.Dispatch(event)
+	g.App.dispatchEvent(event)
 }
 
 // eventAnnouncement handles the announcement event.
@@ -1552,7 +1553,7 @@ func (g *Group) eventAnnouncement(data string) {
 		Group:   g,
 		Message: ParseAnnouncement(data, g),
 	}
-	g.App.Dispatch(event)
+	g.App.dispatchEvent(event)
 }
 
 // eventModerators handles the moderators event.
@@ -1647,7 +1648,7 @@ func (g *Group) eventModerators(data string) {
 	}
 
 	for _, event = range events {
-		g.App.Dispatch(event)
+		g.App.dispatchEvent(event)
 	}
 }
 
@@ -1663,7 +1664,7 @@ func (g *Group) eventMessageDelete(data string) {
 			Message: msg,
 			User:    msg.User,
 		}
-		g.App.Dispatch(event)
+		g.App.dispatchEvent(event)
 	}
 }
 
@@ -1686,7 +1687,7 @@ func (g *Group) eventMessageClearAll(data string) {
 			Type:  OnClearAll,
 			Group: g,
 		}
-		g.App.Dispatch(event)
+		g.App.dispatchEvent(event)
 	case "error":
 		// This event is fired when this account does not have permission to clear all.
 	}
@@ -1709,7 +1710,7 @@ func (g *Group) eventUserBlocked(data string) {
 		Group:   g,
 		Blocked: blocked,
 	}
-	g.App.Dispatch(event)
+	g.App.dispatchEvent(event)
 }
 
 // eventUserUnblocked handles the user unblocked event.
@@ -1729,16 +1730,16 @@ func (g *Group) eventUserUnblocked(data string) {
 		Group:     g,
 		Unblocked: unblocked,
 	}
-	g.App.Dispatch(event)
+	g.App.dispatchEvent(event)
 }
 
 // eventAllUserUnblocked handles the all user unblocked event.
-func (g *Group) eventAllUserUnblocked(data string) {
+func (g *Group) eventAllUserUnblocked(string) {
 	event := &Event{
 		Type:  OnAllUserUnbanned,
 		Group: g,
 	}
-	g.App.Dispatch(event)
+	g.App.dispatchEvent(event)
 }
 
 // eventUpdateGroupInfo handles the update group info event.
@@ -1754,7 +1755,7 @@ func (g *Group) eventUpdateGroupInfo(data string) {
 		Group:     g,
 		GroupInfo: groupinfo,
 	}
-	g.App.Dispatch(event)
+	g.App.dispatchEvent(event)
 }
 
 // eventUpdateGroupInfo handles the update user profile event.
@@ -1764,5 +1765,5 @@ func (g *Group) eventUpdateUserProfile(data string) {
 		Group: g,
 		User:  &User{Name: data, IsSelf: strings.EqualFold(data, g.LoginName)},
 	}
-	g.App.Dispatch(event)
+	g.App.dispatchEvent(event)
 }

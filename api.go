@@ -1,36 +1,58 @@
 package chadango
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"encoding/xml"
-	"fmt"
 	"io"
+	"log"
+	"mime/multipart"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
-	"reflect"
 	"strconv"
 	"strings"
-	"time"
 )
 
-// API is a struct representing a compilation of various Chatango APIs.
-type API struct {
-	Username string
-	Password string
-	cookies  map[string]string // cookies stores cookies without the `url.URL` gimmick.
-	client   *http.Client      // client is a client shared among requests.
-	jar      *cookiejar.Jar    // jar is a `cookiejar.Jar` used for managing cookies.
+// httpClient is an [http.Client] to interact with the Chatango APIs.
+var httpClient *http.Client
+
+// initHttpClient initializes the [http.Client] with custom headers and a cookie jar.
+func initHttpClient() {
+	httpClient = &http.Client{
+		Transport: &Transport{
+			Transport: http.DefaultTransport,
+			Headers: map[string]string{
+				"Host":       "script.st.chatango.com",
+				"Origin":     "https://st.chatango.com",
+				"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+			},
+		},
+		Timeout: API_TIMEOUT,
+	}
+
+	var err error
+	if httpClient.Jar, err = cookiejar.New(nil); err != nil {
+		log.Fatalf("Failed to create cookie jar: %v", err)
+	}
 }
 
 // Transport is a custom RoundTripper implementation.
+// It adds custom headers to the request before performing the request using the underlying Transport.
 type Transport struct {
-	Transport http.RoundTripper // Transport is the underlying RoundTripper.
-	Headers   map[string]string // Headers contains custom headers to be added to the requests.
+	Transport http.RoundTripper // Underlying RoundTripper.
+	Headers   map[string]string // Custom headers to be added to the requests.
 }
 
 // RoundTrip executes a single HTTP request and returns its response.
-// It adds custom headers to the request before performing the request using the underlying Transport.
+//
+// Args:
+//   - req: The HTTP request to be executed.
+//
+// Returns:
+//   - *http.Response: The HTTP response.
+//   - error: An error if the request fails.
 func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// Add custom headers to the request.
 	for key, value := range t.Headers {
@@ -41,153 +63,368 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return t.Transport.RoundTrip(req)
 }
 
-// Initialize initializes the Chatango API client and retrieves cookies from the specified username and password.
-// It authenticates the client by obtaining and storing the necessary cookies.
-// The retrieved cookies will be stored in the API's cookies field for external access through `api.GetCookie`.
-func (api *API) Initialize() (err error) {
-	if api.client == nil {
-		transport := &Transport{
-			Transport: http.DefaultTransport,
-			Headers: map[string]string{
-				"Host":       "script.st.chatango.com",
-				"Origin":     "https://st.chatango.com",
-				"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-			},
-		}
-		if api.jar, err = cookiejar.New(nil); err != nil {
-			return
-		}
-		api.client = &http.Client{
-			Transport: transport,
-			Timeout:   API_TIMEOUT,
-			Jar:       api.jar,
-		}
-		api.cookies = make(map[string]string)
+// APIClient represents a client for the Chatango API.
+type APIClient struct {
+	context context.Context
+}
+
+// executeRequest executes the given HTTP request and checks for errors.
+//
+// Args:
+//   - req: The HTTP request to be executed.
+//
+// Returns:
+//   - *http.Response: The HTTP response.
+//   - error: An error if the request fails.
+func executeRequest(req *http.Request) (res *http.Response, err error) {
+	if res, err = httpClient.Do(req); err != nil {
+		return
+	}
+	if res.StatusCode != http.StatusOK {
+		defer res.Body.Close()
+		err = ErrRequestFailed
+	}
+	return
+}
+
+// Get sends a GET request to the specified URL with the provided parameters.
+//
+// Args:
+//   - url: The URL to send the GET request to.
+//   - param: The URL parameters to include in the request.
+//
+// Returns:
+//   - *http.Response: The HTTP response.
+//   - error: An error if the request fails.
+func (p *APIClient) Get(url string, param url.Values) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(p.context, "GET", url, nil)
+	if err != nil {
+		return nil, err
 	}
 
-	var res *http.Response
+	req.URL.RawQuery = param.Encode()
 
+	return executeRequest(req)
+}
+
+// PostForm sends a POST request with form data to the specified URL.
+//
+// Args:
+//   - url: The URL to send the POST request to.
+//   - data: The form data to include in the POST request.
+//
+// Returns:
+//   - *http.Response: The HTTP response.
+//   - error: An error if the request fails.
+func (p *APIClient) PostForm(url string, data url.Values) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(p.context, "POST", url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.PostForm = data
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	return executeRequest(req)
+}
+
+// PostMultipart sends a POST request with body and its content-type to the specified URL.
+//
+// Args:
+//   - url: The URL to send the POST request to.
+//   - body: The body of the POST request.
+//   - ctype: The content type of the POST request.
+//
+// Returns:
+//   - *http.Response: The HTTP response.
+//   - error: An error if the request fails.
+func (p *APIClient) PostMultipart(url string, body io.Reader, ctype string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(p.context, "POST", url, body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", ctype)
+
+	return executeRequest(req)
+}
+
+// PrivateAPI represents a compilation of various Chatango APIs that needs to be authenticated.
+type PrivateAPI struct {
+	APIClient
+
+	MessageBackground MessageBackground
+	MessageStyle      MessageStyle
+
+	username       string
+	password       string
+	cookies        map[string]string
+	loggedIn       bool
+	recentGroups   map[string]string // Map of recently visited groups.[key=name,val=desc]
+	unreadMsgCount int               // Number of unread private messages.
+	createdGroups  map[string]string // Map of created groups.[key=name,val=desc]
+	gcmID          string
+	gcmToken       string
+}
+
+// NewPrivateAPI creates a new [chadango.PrivateAPI] instance.
+//
+// Args:
+//   - username: The username of the Chatango account.
+//   - password: The password of the Chatango account.
+//   - ctx: The context for the API client.
+//
+// Returns:
+//   - *PrivateAPI: A new [PrivateAPI] instance.
+func NewPrivateAPI(username, password string, ctx context.Context) *PrivateAPI {
+	api := &PrivateAPI{
+		username:      username,
+		password:      password,
+		cookies:       make(map[string]string),
+		recentGroups:  make(map[string]string),
+		createdGroups: make(map[string]string),
+	}
+	api.context = ctx
+
+	return api
+}
+
+// GetCookie retrieves a cookie value.
+//
+// Args:
+//   - name: The name of the cookie.
+//
+// Returns:
+//   - string: The value of the cookie.
+//   - bool: True if the cookie exists, false otherwise.
+func (p *PrivateAPI) GetCookie(name string) (string, bool) {
+	value, ok := p.cookies[name]
+	return value, ok
+}
+
+// GetCreatedGroups returns the map of created chat groups.
+//
+// Returns:
+//   - map[string]string: A map of created groups, where the key is the group name and the value is the group description.
+func (p *PrivateAPI) GetCreatedGroups() map[string]string {
+	return p.createdGroups
+}
+
+// GetGCMID returns the GCM ID of the user.
+//
+// Returns:
+//   - string: The GCM ID of the user.
+func (p *PrivateAPI) GetGCMID() string {
+	return p.gcmID
+}
+
+// GetGCMToken returns the GCM token of the user.
+//
+// Returns:
+//   - string: The GCM token of the user.
+func (p *PrivateAPI) GetGCMToken() string {
+	return p.gcmToken
+}
+
+// GetMsgBgImage returns the URL of the message background image.
+//
+// Returns:
+//   - string: The URL of the message background image.
+func (p *PrivateAPI) GetMsgBgImage() string {
+	return p.MessageBackground.GetImageURL()
+}
+
+// GetRecentGroups returns the map of recent chat groups.
+//
+// Returns:
+//   - map[string]string: A map of recent groups, where the key is the group name and the value is the group description.
+func (p *PrivateAPI) GetRecentGroups() map[string]string {
+	return p.recentGroups
+}
+
+// GetUnreadMsgCount returns the number of unread private messages.
+//
+// Returns:
+//   - int: The number of unread private messages.
+func (p *PrivateAPI) GetUnreadMsgCount() int {
+	return p.unreadMsgCount
+}
+
+// IsLoggedIn returns true if the user is logged in, false otherwise.
+//
+// Returns:
+//   - bool: True if the user is logged in, false otherwise.
+func (p *PrivateAPI) IsLoggedIn() bool {
+	return p.loggedIn
+}
+
+// Login authenticates the client by obtaining and storing the necessary cookies.
+//
+// Returns:
+//   - error: An error if the login fails.
+func (p *PrivateAPI) Login() error {
 	data := url.Values{
-		"user_id":     {api.Username},
-		"password":    {api.Password},
+		"user_id":     {p.username},
+		"password":    {p.password},
 		"storecookie": {"on"},
 		"checkerrors": {"yes"},
 	}
 
-	if res, err = api.client.PostForm("https://chatango.com/login", data); err != nil {
-		return
+	res, err := p.PostForm(API_LOGIN, data)
+	if err != nil {
+		return err
 	}
 	defer res.Body.Close()
 
-	// This is a peculiar method of storing cookies.
-	// TODO: Find a more elegant alternative.
-	for _, cookie := range api.jar.Cookies(res.Request.URL) {
-		api.cookies[cookie.Name] = cookie.Value
+	p.loggedIn = true
+
+	for _, cookie := range httpClient.Jar.Cookies(res.Request.URL) {
+		p.cookies[cookie.Name] = cookie.Value
 	}
 
-	return
+	return nil
 }
 
-// GetCookie retrieves cookie value.
-func (api *API) GetCookie(cookiename string) (cookie string, ok bool) {
-	cookie, ok = api.cookies[cookiename]
-	return
-}
-
-// IsGroup checks whether the specified name is a group.
-func (api *API) IsGroup(groupname string) (answer bool, err error) {
-	var res *http.Response
-
+// RegisterGCM registers the GCM ID with the provided token.
+//
+// Returns:
+//   - error: An error if the registration fails.
+func (p *PrivateAPI) RegisterGCM() (err error) {
 	data := url.Values{
-		"name":      {groupname},
-		"makegroup": {"1"},
+		"token":   {p.gcmToken},
+		"gcm":     {p.gcmID},
+		"version": {"50"},
+		"os":      {"oreo"},
+		"serial":  {"UNKNOWN"},
+		"model":   {"Samsung S8"},
 	}
 
-	if res, err = api.client.PostForm("https://chatango.com/checkname", data); err != nil {
+	var res *http.Response
+	res, err = p.PostForm(API_REG_GCM, data)
+	if err != nil {
 		return
 	}
 	defer res.Body.Close()
 
-	var body []byte
-	if body, err = io.ReadAll(res.Body); err != nil {
-		return
+	return
+}
+
+// RetrieveMsgBg retrieves the message background of the current user.
+//
+// Returns:
+//   - error: An error if the retrieval fails.
+func (p *PrivateAPI) RetrieveMsgBg() error {
+	msgBg, err := publicAPI.GetBackground(p.username)
+	if err != nil {
+		return err
 	}
 
-	var values url.Values
-	if values, err = url.ParseQuery(string(body)); err != nil {
-		return
+	p.MessageBackground = msgBg
+
+	return nil
+}
+
+// RetrieveMsgStyle retrieves the message style of the current user.
+//
+// Returns:
+//   - error: An error if the retrieval fails.
+func (p *PrivateAPI) RetrieveMsgStyle() error {
+	msgStyle, err := publicAPI.GetStyle(p.username)
+	if err != nil {
+		return err
 	}
 
-	answer = values.Get("answer") == "1"
+	p.MessageStyle = msgStyle
+
+	return nil
+}
+
+// RetrieveTokenGCM retrieves the GCM token for the specified GCM ID.
+//
+// Returns:
+//   - error: An error if the retrieval fails.
+func (p *PrivateAPI) RetrieveTokenGCM() (err error) {
+	data := url.Values{
+		"sid":       {p.username},
+		"pwd":       {p.password},
+		"encrypted": {"false"},
+		"gcm":       {p.gcmID},
+		"version":   {"50"},
+		"os":        {"oreo"},
+		"serial":    {"UNKNOWN"},
+		"model":     {"Samsung S8"},
+	}
+
+	var res *http.Response
+	res, err = p.PostForm(API_SET_TOKEN_GCM, data)
+	if err != nil {
+		return
+	}
+	defer res.Body.Close()
+
+	resp := struct {
+		Data struct {
+			Token string `json:"token"`
+		} `json:"data"`
+		Type string `json:"type"`
+	}{}
+
+	err = json.NewDecoder(res.Body).Decode(&resp)
+
+	if resp.Type == "success" {
+		// This token must be keep in a persistent file for the next usage.
+		p.gcmToken = resp.Data.Token
+		return
+	}
 
 	return
 }
 
-// PeopleQuery represents a query for searching people.
-type PeopleQuery struct {
-	AgeFrom    int    // Minimum age
-	AgeTo      int    // Maximum age
-	Gender     string // Gender (B, M, F, N)
-	Username   string // Username
-	Radius     int    // Radius
-	Latitude   string // Latitude
-	Longtitude string // Longitude
-	Online     bool   // Online status
-	Offset     int    // Offset
-	Amount     int    // Amount
-}
+// RetrieveUpdate retrieves the latest updates for the user's groups and unread messages.
+//
+// Returns:
+//   - error: An error if the retrieval fails.
+func (p *PrivateAPI) RetrieveUpdate() (err error) {
+	var res *http.Response
+	if res, err = p.PostForm(API_GRP_LIST_UPD, nil); err != nil {
+		return
+	}
+	defer res.Body.Close()
 
-// GetForm returns the URL-encoded form values for the PeopleQuery.
-func (pq *PeopleQuery) GetForm() url.Values {
-	pq.AgeFrom = Min(99, Max(0, pq.AgeFrom))
-	pq.AgeTo = Min(99, Max(0, pq.AgeTo))
+	updates := struct {
+		RecentGroups   [][2]string `json:"recent_groups"`
+		UnreadMsgCount int         `json:"n_msg"`
+		CreatedGroups  [][2]string `json:"groups"`
+	}{}
 
-	switch pq.Gender {
-	case "B", "M", "F", "N":
-	default:
-		pq.Gender = "B"
+	if err = json.NewDecoder(res.Body).Decode(&updates); err != nil {
+		return
 	}
 
-	pq.Radius = Min(9999, Max(0, pq.Radius))
-
-	form := url.Values{
-		"ami": {strconv.Itoa(pq.AgeFrom)},
-		"ama": {strconv.Itoa(pq.AgeTo)},
-		"s":   {pq.Gender},
+	for _, g := range updates.RecentGroups {
+		p.recentGroups[g[0]] = g[1]
 	}
 
-	if pq.Username != "" {
-		form.Set("ss", pq.Username)
-	}
-	if pq.Radius > 0 {
-		form.Set("r", strconv.Itoa(pq.Radius))
-	}
-	if pq.Latitude != "" && pq.Longtitude != "" {
-		form.Set("la", pq.Latitude)
-		form.Set("lo", pq.Longtitude)
-	}
-	if pq.Online {
-		form.Set("o", "1")
+	p.unreadMsgCount = updates.UnreadMsgCount
+
+	for _, g := range updates.CreatedGroups {
+		p.createdGroups[g[0]] = g[1]
 	}
 
-	form.Set("h5", "1")
-	form.Set("f", strconv.Itoa(pq.Offset))
-	form.Set("t", strconv.Itoa(pq.Offset+pq.Amount))
-
-	return form
-}
-
-// NextOffset updates the offset to retrieve the next set of results.
-func (pq *PeopleQuery) NextOffset() {
-	pq.Offset += pq.Amount
+	return
 }
 
 // SearchPeople searches for people based on the provided query.
-// It returns a list of usernames and online status data.
-func (api *API) SearchPeople(query PeopleQuery) (usernames [][2]string, err error) {
+//
+// Args:
+//   - query: The search query.
+//
+// Returns:
+//   - []PeopleResult: A list of search results.
+//   - error: An error if the search fails.
+func (p *PrivateAPI) SearchPeople(query PeopleQuery) (result []PeopleResult, err error) {
 	var res *http.Response
-
-	if res, err = api.client.PostForm("https://chatango.com/search", query.GetForm()); err != nil {
+	if res, err = p.PostForm(API_SEARCH_PEOPLE, query.GetForm()); err != nil {
 		return
 	}
 	defer res.Body.Close()
@@ -200,465 +437,219 @@ func (api *API) SearchPeople(query PeopleQuery) (usernames [][2]string, err erro
 	if head, data, ok := strings.Cut(string(body), "="); ok && head == "h" {
 		var username string
 		var isonline string // Should we parse it into boolean? "0" || "1"
-		for _, entry := range strings.Split(data, "") {
+		for _, entry := range strings.Split(data, ",") {
 			username, isonline, _ = strings.Cut(entry, ";")
-			usernames = append(usernames, [2]string{username, isonline})
+			result = append(result, PeopleResult{username, isonline == "1"})
 		}
 	}
 
 	return
 }
 
-// GroupsList represents the created and recently visited chat groups of the user.
-// It also provides the number of unread private messages.
-type GroupsList struct {
-	RecentGroups   [][2]string `json:"recent_groups"` // List of recently visited groups.
-	UnreadMessages int         `json:"n_msg"`         // Number of unread private messages.
-	Groups         [][2]string `json:"groups"`        // List of created groups.
+// SetGCMID sets the GCM ID of the user.
+//
+// Args:
+//   - gcmID: The GCM ID of the user.
+func (p *PrivateAPI) SetGCMID(gcmID string) {
+	p.gcmID = gcmID
 }
 
-// GetRecentGroups returns the map of recent chat groups.
-func (mg GroupsList) GetRecentGroups() map[string]string {
-	recent := make(map[string]string)
-	for _, arr := range mg.RecentGroups {
-		recent[arr[0]], _ = url.QueryUnescape(arr[1])
-	}
-
-	return recent
-}
-
-// GetGroups returns the map of all chat groups.
-func (mg GroupsList) GetGroups() map[string]string {
-	groups := make(map[string]string)
-	for _, arr := range mg.Groups {
-		groups[arr[0]], _ = url.QueryUnescape(arr[1])
-	}
-
-	return groups
-}
-
-// GetGroupList retrieves the user's chat group list.
-func (api *API) GetGroupList() (groups GroupsList, err error) {
-	var res *http.Response
-
-	if res, err = api.client.PostForm("https://chatango.com/groupslistupdate", url.Values{}); err != nil {
-		return
-	}
-	defer res.Body.Close()
-
-	var body []byte
-	if body, err = io.ReadAll(res.Body); err != nil {
-		return
-	}
-
-	err = json.Unmarshal(body, &groups)
-
-	return
-}
-
-// MiniProfile represents a mini profile of a user.
-type MiniProfile struct {
-	XMLName  xml.Name     `xml:"mod"`  // Tag name
-	Body     QueryEscaped `xml:"body"` // Mini profile info
-	Gender   string       `xml:"s"`    // Gender (M, F)
-	Birth    BirthDate    `xml:"b"`    // Date of birth (yyyy-mm-dd)
-	Location Location     `xml:"l"`    // Location
-	Premium  PremiumDate  `xml:"d"`    // Premium expiration
-}
-
-// QueryEscaped represents a query-escaped string.
-type QueryEscaped string
-
-// UnmarshalXML unmarshals the XML data into the QueryEscaped value.
-func (c *QueryEscaped) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	var rawText string
-	if err := d.DecodeElement(&rawText, &start); err != nil {
-		return err
-	}
-
-	parsedText, _ := url.QueryUnescape(rawText)
-
-	*c = QueryEscaped(parsedText)
-	return nil
-}
-
-// BirthDate represents a birth date of a user.
-type BirthDate time.Time
-
-// UnmarshalXML unmarshals the XML data into the BirthDate value.
-func (c *BirthDate) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	var rawDate string
-	if err := d.DecodeElement(&rawDate, &start); err != nil {
-		return err
-	}
-
-	parsedDate, _ := time.Parse("2006-01-02", rawDate)
-
-	*c = BirthDate(parsedDate)
-	return nil
-}
-
-// Location represents the location information of a user.
-type Location struct {
-	Country   string  `xml:"c,attr"`    // Country name or US postal code
-	G         string  `xml:"g,attr"`    // Reserved
-	Latitude  float64 `xml:"lat,attr"`  // Latitude
-	Longitude float64 `xml:"lon,attr"`  // Longitude
-	Text      string  `xml:",chardata"` // String text of the location
-}
-
-// PremiumDate represents a premium date of a user.
-type PremiumDate time.Time
-
-// UnmarshalXML unmarshals the XML data into the PremiumDate value.
-func (c *PremiumDate) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	var rawDate string
-	if err := d.DecodeElement(&rawDate, &start); err != nil {
-		return err
-	}
-
-	parsedTimestamp, _ := ParseTime(rawDate)
-
-	*c = PremiumDate(parsedTimestamp)
-	return nil
-}
-
-// GetMiniProfile retrieves the mini profile of the specified username.
-func (api *API) GetMiniProfile(username string) (profile MiniProfile, err error) {
-	var res *http.Response
-
-	path0 := username[0:1]
-	path1 := username[0:1]
-	if len(username) > 1 {
-		path1 = username[1:2]
-	}
-	url := fmt.Sprintf("https://ust.chatango.com/profileimg/%s/%s/%s/mod1.xml", path0, path1, username)
-
-	if res, err = api.client.Get(url); err != nil {
-		return
-	}
-	defer res.Body.Close()
-
-	var body []byte
-	if body, err = io.ReadAll(res.Body); err != nil {
-		return
-	}
-
-	err = xml.Unmarshal(body, &profile)
-
-	return
-}
-
-// FullProfile represents a full profile of a user.
-type FullProfile struct {
-	XMLName xml.Name     `xml:"mod"`  // Tag name
-	Body    QueryEscaped `xml:"body"` // Full profile info
-	T       string       `xml:"t"`    // Reserved
-}
-
-// GetFullProfile retrieves the full profile of the specified username.
-func (api *API) GetFullProfile(username string) (profile FullProfile, err error) {
-	var res *http.Response
-
-	path0 := username[0:1]
-	path1 := username[0:1]
-	if len(username) > 1 {
-		path1 = username[1:2]
-	}
-	url := fmt.Sprintf("https://ust.chatango.com/profileimg/%s/%s/%s/mod2.xml", path0, path1, username)
-
-	if res, err = api.client.Get(url); err != nil {
-		return
-	}
-	defer res.Body.Close()
-
-	var body []byte
-	if body, err = io.ReadAll(res.Body); err != nil {
-		return
-	}
-
-	err = xml.Unmarshal(body, &profile)
-
-	return
-}
-
-// MessageBackground represents the background information of a user.
-type MessageBackground struct {
-	Align        string `xml:"align,attr"`  // Background image alignment
-	Alpha        int    `xml:"bgalp,attr"`  // Background color transparency
-	Color        string `xml:"bgc,attr"`    // Background color
-	HasRecording int64  `xml:"hasrec,attr"` // Media recording timestamp (ms)
-	ImageAlpha   int    `xml:"ialp,attr"`   // Background image transparency
-	IsVid        bool   `xml:"isvid,attr"`  // Media is a video?
-	Tile         bool   `xml:"tile,attr"`   // Tile image?
-	UseImage     bool   `xml:"useimg,attr"` // Use image?
-}
-
-// GetForm returns the URL-encoded form values for the `MessageBackground`.
-func (mb *MessageBackground) GetForm() url.Values {
-	switch mb.Align {
-	case "tr", "br", "tl", "bl":
-	default:
-		mb.Align = "tl"
-	}
-	mb.Alpha = Min(100, Max(0, mb.Alpha))
-	if mb.Color == "" {
-		mb.Color = "ffffff"
-	}
-	mb.ImageAlpha = Min(100, Max(0, mb.ImageAlpha))
-
-	form := url.Values{
-		"align":  {mb.Align},
-		"bgalp":  {strconv.Itoa(mb.Alpha)},
-		"bgc":    {mb.Color},
-		"hasrec": {strconv.FormatInt(mb.HasRecording, 10)},
-		"ialp":   {strconv.Itoa(mb.ImageAlpha)},
-		"isvid":  {BoolZeroOrOne(mb.IsVid)},
-		"tile":   {BoolZeroOrOne(mb.Tile)},
-		"useimg": {BoolZeroOrOne(mb.UseImage)},
-	}
-
-	return form
-}
-
-// GetBackground retrieves the message background of the specified username.
-func (api *API) GetBackground(username string) (background MessageBackground, err error) {
-	var res *http.Response
-
-	path0 := username[0:1]
-	path1 := username[0:1]
-	if len(username) > 1 {
-		path1 = username[1:2]
-	}
-	url := fmt.Sprintf("https://ust.chatango.com/profileimg/%s/%s/%s/msgbg.xml", path0, path1, username)
-
-	if res, err = api.client.Get(url); err != nil {
-		return
-	}
-	defer res.Body.Close()
-
-	var body []byte
-	if body, err = io.ReadAll(res.Body); err != nil {
-		return
-	}
-
-	err = xml.Unmarshal(body, &background)
-
-	return
-}
-
-// SetBackground updates the message background of the current user.
-// Normally, the `background` parameter is obtained/modified from `api.GetBackground()`.
-func (api *API) SetBackground(background MessageBackground) (err error) {
-	// OPTIONS https://chatango.com/updatemsgbg
-	// POST https://chatango.com/updatemsgbg
-	var res *http.Response
-
-	data := background.GetForm()
-	data.Set("lo", api.Username)
-	data.Set("p", api.Password)
-
-	if res, err = api.client.PostForm("https://chatango.com/updatemsgbg", data); err != nil {
-		return
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusOK {
-		return ErrRequestFailed
-	}
-
-	return
-}
-
-// MessageStyle represents the style settings for a message.
-type MessageStyle struct {
-	FontFamily    string `json:"fontFamily"`    // The font family used for the message text.
-	FontSize      string `json:"fontSize"`      // The font size used for the message text.
-	Bold          bool   `json:"bold"`          // A boolean value indicating whether the message text should be displayed in bold.
-	StylesOn      bool   `json:"stylesOn"`      // A boolean value indicating whether the message styles are enabled.
-	UseBackground string `json:"usebackground"` // The background color used for the message text.
-	Italics       bool   `json:"italics"`       // A boolean value indicating whether the message text should be displayed in italics.
-	TextColor     string `json:"textColor"`     // The color used for the message text.
-	Underline     bool   `json:"underline"`     // A boolean value indicating whether the message text should be underlined.
-	NameColor     string `json:"nameColor"`     // The color used for the username or sender's name in the message.
-}
-
-// GetForm returns the URL-encoded form values for the `MessageStyle`.
-func (mb MessageStyle) GetForm() url.Values {
-	form := url.Values{}
-	configType := reflect.TypeOf(mb)
-	configValue := reflect.ValueOf(mb)
-	var (
-		field reflect.StructField
-		value reflect.Value
-		tag   string
-	)
-
-	for i := 0; i < configType.NumField(); i++ {
-		field = configType.Field(i)
-		value = configValue.Field(i)
-		tag = field.Tag.Get("json")
-
-		form.Set(tag, fmt.Sprintf("%v", value.Interface()))
-	}
-
-	return form
-}
-
-// GetStyle retrieves the message style of the specified username.
-func (api *API) GetStyle(username string) (style MessageStyle, err error) {
-	var res *http.Response
-
-	path0 := username[0:1]
-	path1 := username[0:1]
-	if len(username) > 1 {
-		path1 = username[1:2]
-	}
-	url := fmt.Sprintf("https://ust.chatango.com/profileimg/%s/%s/%s/msgstyles.json", path0, path1, username)
-
-	if res, err = api.client.Get(url); err != nil {
-		return
-	}
-	defer res.Body.Close()
-
-	var body []byte
-	if body, err = io.ReadAll(res.Body); err != nil {
-		return
-	}
-
-	err = json.Unmarshal(body, &style)
-
-	return
-}
-
-// SetStyle updates the message style of the current user.
-// Normally, the `style` parameter is obtained/modified from `api.GetStyle()`.
-func (api *API) SetStyle(style MessageStyle) (err error) {
-	// OPTIONS https://chatango.com/updatemsgstyles
-	// POST https://chatango.com/updatemsgstyles
-	var res *http.Response
-
-	data := style.GetForm()
-	data.Set("lo", api.Username)
-	data.Set("p", api.Password)
-
-	/* var bg MessageBackground
-	if bg, err = api.GetBackground(api.Username); err != nil {
-		data.Set("hasrec", fmt.Sprintf("%d", bg.HasRecording))
-	} */
-
-	if res, err = api.client.PostForm("https://chatango.com/updatemsgstyles", data); err != nil {
-		return
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusOK {
-		return ErrRequestFailed
-	}
-
-	return
-}
-
-// GetToken retrieves the token for the specified GCM ID.
-func (api *API) GetToken(gcmID string) (token string, err error) {
-	var res *http.Response
-
-	data := url.Values{
-		"sid":       {api.Username},
-		"pwd":       {api.Password},
-		"encrypted": {"false"},
-		"gcm":       {gcmID},
-		"version":   {"50"},
-		"os":        {"oreo"},
-		"serial":    {"UNKNOWN"},
-		"model":     {"Samsung S8"},
-	}
-
-	if res, err = api.client.PostForm("https://chatango.com/settokenapp", data); err != nil {
-		return
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode == http.StatusOK {
-		var jsonResponse struct {
-			Data struct {
-				Token string `json:"token"`
-			} `json:"data"`
-			Type string `json:"type"`
-		}
-
-		if err = json.NewDecoder(res.Body).Decode(&jsonResponse); err != nil {
-			return
-		}
-
-		if jsonResponse.Type == "success" {
-			token = jsonResponse.Data.Token
-			return
-		}
-	}
-
-	err = ErrRequestFailed
-
-	return
-}
-
-// RegisterGCM registers the specified GCM ID with the provided token.
-func (api *API) RegisterGCM(gcmID, token string) (err error) {
-	var res *http.Response
-
-	data := url.Values{
-		"token":   {token},
-		"gcm":     {gcmID},
-		"version": {"50"},
-		"os":      {"oreo"},
-		"serial":  {"UNKNOWN"},
-		"model":   {"Samsung S8"},
-	}
-
-	if res, err = api.client.PostForm("https://chatango.com/updategcm", data); err != nil {
-		return
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusOK {
-		return ErrRequestFailed
-	}
-
-	return
+// SetGCMToken sets the GCM token of the user.
+//
+// Args:
+//   - token: The GCM token of the user.
+func (p *PrivateAPI) SetGCMToken(token string) {
+	p.gcmToken = token
 }
 
 // UnregisterGCM unregisters the specified GCM ID.
-func (api *API) UnregisterGCM(gcmID string) (err error) {
-	var res *http.Response
-
+//
+// Returns:
+//   - error: An error if the unregistration fails.
+func (p *PrivateAPI) UnregisterGCM() (err error) {
 	data := url.Values{
-		"sid": {api.Username},
-		"gcm": {gcmID},
+		"sid": {p.username},
+		"gcm": {p.gcmID},
 	}
 
-	if res, err = http.PostForm("https://chatango.com/unregistergcm", data); err != nil {
+	var res *http.Response
+	res, err = p.PostForm(API_UNREG_GCM, data)
+	if err != nil {
 		return
 	}
 	defer res.Body.Close()
 
-	if res.StatusCode != http.StatusOK {
-		return ErrRequestFailed
+	return
+}
+
+// UpdateMsgBg updates the message background of the current user.
+//
+// Returns:
+//   - error: An error if the update fails.
+func (p *PrivateAPI) UpdateMsgBg() (err error) {
+	bg := p.MessageBackground.GetForm()
+	bg.Set("lo", p.username)
+	bg.Set("p", p.password)
+
+	var res *http.Response
+	res, err = p.PostForm(API_UPD_MSG_BG, bg)
+	if err != nil {
+		return
 	}
+	defer res.Body.Close()
 
 	return
 }
 
-// CheckUsername checks whether the specified username is available for purchase.
-// It returns `ok=true` if the username is purchasable.
-// If not, the reasons for it not being available will be provided in the `notOkReasons` slice.
-func (api *API) CheckUsername(username string) (ok bool, notOkReasons []string, err error) {
-	var res *http.Response
+// UpdateMsgStyle updates the message style of the current user.
+//
+// Returns:
+//   - error: An error if the update fails.
+func (p *PrivateAPI) UpdateMsgStyle() (err error) {
+	style := p.MessageStyle.GetForm()
+	style.Set("lo", p.username)
+	style.Set("p", p.password)
 
+	var res *http.Response
+	res, err = p.PostForm(API_UPD_MSG_STYLE, style)
+	if err != nil {
+		return
+	}
+	defer res.Body.Close()
+
+	return
+}
+
+// UploadImage uploads an image to the Chatango server.
+//
+// Args:
+//   - filename: The name of the image file.
+//   - image: The image data.
+//
+// Returns:
+//   - UploadedImage: The uploaded image information.
+//   - error: An error if the upload fails.
+func (p *PrivateAPI) UploadImage(filename string, image io.Reader) (img UploadedImage, err error) {
+	var (
+		reqBody *bytes.Buffer
+		writer  = multipart.NewWriter(reqBody)
+		part    io.Writer
+	)
+
+	if err = writer.WriteField("u", p.username); err != nil {
+		return
+	}
+
+	if err = writer.WriteField("p", p.password); err != nil {
+		return
+	}
+
+	if part, err = writer.CreateFormFile("filedata", filename); err != nil {
+		return
+	}
+	if _, err = io.Copy(part, image); err != nil {
+		return
+	}
+
+	var res *http.Response
+	res, err = p.PostMultipart(API_UPLOAD_IMG, reqBody, writer.FormDataContentType())
+	if err != nil {
+		return
+	}
+	defer res.Body.Close()
+
+	var body []byte
+	if body, err = io.ReadAll(res.Body); err != nil {
+		return
+	}
+
+	status, id, ok := strings.Cut(string(body), ":")
+	if !ok || !strings.EqualFold(status, "success") {
+		err = ErrRequestFailed
+		return
+	}
+
+	img.ID, _ = strconv.Atoi(id)
+	img.Username = strings.ToLower(p.username)
+
+	return
+}
+
+// UploadMsgBgImage uploads an image to be used as the message background.
+//
+// Args:
+//   - filename: The name of the image file.
+//   - image: The image data.
+//
+// Returns:
+//   - error: An error if the upload fails.
+func (p *PrivateAPI) UploadMsgBgImage(filename string, image io.Reader) (err error) {
+	var (
+		reqBody *bytes.Buffer
+		writer  = multipart.NewWriter(reqBody)
+	)
+
+	if err = writer.WriteField("lo", p.username); err != nil {
+		return
+	}
+
+	if err = writer.WriteField("p", p.password); err != nil {
+		return
+	}
+
+	var part io.Writer
+	if part, err = writer.CreateFormFile("Filedata", filename); err != nil {
+		return
+	}
+	if _, err = io.Copy(part, image); err != nil {
+		return
+	}
+
+	var res *http.Response
+	res, err = p.PostMultipart(API_UPD_MSG_BG, reqBody, writer.FormDataContentType())
+	if err != nil {
+		return
+	}
+	defer res.Body.Close()
+
+	return
+}
+
+// PublicAPI represents a compilation of various Chatango APIs that doesn't needs to be authenticated.
+type PublicAPI struct {
+	APIClient
+}
+
+// NewPublicAPI creates a new PublicAPI instance.
+//
+// Args:
+//   - ctx: The context for the API client.
+//
+// Returns:
+//   - *PublicAPI: A new instance of PublicAPI.
+func NewPublicAPI(ctx context.Context) *PublicAPI {
+	api := &PublicAPI{}
+	api.context = ctx
+
+	return api
+}
+
+// CheckUsername checks whether the specified username is available for purchase.
+//
+// Args:
+//   - username: The username to check for availability.
+//
+// Returns:
+//   - bool: `true` if the username is purchasable, `false` otherwise.
+//   - []string: A list of reasons why the username is not available.
+//   - error: An error if the check fails.
+func (p *PublicAPI) CheckUsername(username string) (ok bool, notOkReasons []string, err error) {
 	data := url.Values{
 		"name": {username},
 	}
 
-	if res, err = api.client.PostForm("https://st.chatango.com/script/namecheckeraccsales", data); err != nil {
+	var res *http.Response
+	if res, err = p.PostForm(API_CHECK_USER, data); err != nil {
 		return
 	}
 	defer res.Body.Close()
@@ -667,14 +658,15 @@ func (api *API) CheckUsername(username string) (ok bool, notOkReasons []string, 
 	if body, err = io.ReadAll(res.Body); err != nil {
 		return
 	}
+	strBody := string(body)
 
-	if strings.Contains(string(body), "error") {
+	if strings.Contains(strBody, "error") {
 		notOkReasons = append(notOkReasons, "invalid username")
 		return
 	}
 
 	var values url.Values
-	if values, err = url.ParseQuery(string(body)); err != nil {
+	if values, err = url.ParseQuery(strBody); err != nil {
 		return
 	}
 
@@ -701,4 +693,153 @@ func (api *API) CheckUsername(username string) (ok bool, notOkReasons []string, 
 	}
 
 	return
+}
+
+// GetBackground retrieves the message background of the specified username.
+//
+// Args:
+//   - username: The username to retrieve the background for.
+//
+// Returns:
+//   - MessageBackground: The message background of the specified username.
+//   - error: An error if the retrieval fails.
+func (p *PublicAPI) GetBackground(username string) (background MessageBackground, err error) {
+	username = strings.ToLower(username)
+
+	var res *http.Response
+	res, err = p.Get(UsernameToURL(API_MSG_BG_XML, username), nil)
+	if err != nil {
+		return
+	}
+	defer res.Body.Close()
+
+	if err = xml.NewDecoder(res.Body).Decode(&background); err != nil {
+		return
+	}
+
+	background.username = username
+
+	return
+}
+
+// GetFullProfile retrieves the full profile of the specified username.
+//
+// Args:
+//   - username: The username to retrieve the full profile for.
+//
+// Returns:
+//   - FullProfile: The full profile of the specified username.
+//   - error: An error if the retrieval fails.
+func (p *PublicAPI) GetFullProfile(username string) (profile FullProfile, err error) {
+	username = strings.ToLower(username)
+
+	var res *http.Response
+	if res, err = p.Get(UsernameToURL(API_MINI_XML, username), nil); err != nil {
+		return
+	}
+	defer res.Body.Close()
+
+	err = xml.NewDecoder(res.Body).Decode(&profile)
+
+	return
+}
+
+// GetMiniProfile retrieves the mini profile of the specified username.
+//
+// Args:
+//   - username: The username to retrieve the mini profile for.
+//
+// Returns:
+//   - MiniProfile: The mini profile of the specified username.
+//   - error: An error if the retrieval fails.
+func (p *PublicAPI) GetMiniProfile(username string) (profile MiniProfile, err error) {
+	username = strings.ToLower(username)
+
+	var res *http.Response
+	if res, err = p.Get(UsernameToURL(API_MINI_XML, username), nil); err != nil {
+		return
+	}
+	defer res.Body.Close()
+
+	if err = xml.NewDecoder(res.Body).Decode(&profile); err != nil {
+		return
+	}
+
+	profile.username = username
+
+	return
+}
+
+// GetStyle retrieves the message style of the specified username.
+//
+// Args:
+//   - username: The username to retrieve the message style for.
+//
+// Returns:
+//   - MessageStyle: The message style of the specified username.
+//   - error: An error if the retrieval fails.
+func (p *PublicAPI) GetStyle(username string) (style MessageStyle, err error) {
+	username = strings.ToLower(username)
+
+	var res *http.Response
+	res, err = p.Get(UsernameToURL(API_MSG_STYLE_JSON, username), nil)
+	if err != nil {
+		return
+	}
+	defer res.Body.Close()
+
+	err = json.NewDecoder(res.Body).Decode(&style)
+
+	return
+}
+
+// IsGroup checks whether the specified name is a group.
+//
+// Args:
+//   - groupname: The name to check for being a group.
+//
+// Returns:
+//   - bool: `true` if the name is a group, `false` otherwise.
+//   - error: An error if the check fails.
+func (p *PublicAPI) IsGroup(groupname string) (answer bool, err error) {
+	data := url.Values{
+		"name":      {groupname},
+		"makegroup": {"1"},
+	}
+
+	var res *http.Response
+	if res, err = p.PostForm(API_CHECK_GROUP, data); err != nil {
+		return
+	}
+	defer res.Body.Close()
+
+	var body []byte
+	if body, err = io.ReadAll(res.Body); err != nil {
+		return
+	}
+
+	var values url.Values
+	if values, err = url.ParseQuery(string(body)); err != nil {
+		return
+	}
+
+	answer = values.Get("answer") == "1"
+
+	return
+}
+
+var (
+	privateAPI *PrivateAPI
+	publicAPI  *PublicAPI
+)
+
+// initAPI initializes the API clients with the provided username, password, and context.
+//
+// Args:
+//   - username: The username for the private API.
+//   - password: The password for the private API.
+//   - ctx: The context for the API clients.
+func initAPI(username, password string, ctx context.Context) {
+	privateAPI = NewPrivateAPI(username, password, ctx)
+	publicAPI = NewPublicAPI(ctx)
 }

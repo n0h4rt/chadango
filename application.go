@@ -12,87 +12,122 @@ import (
 // Application represents the main application.
 type Application struct {
 	Config        *Config                 // Config holds the configuration for the application.
-	Persistence   *Persistence            // Persistence manages data persistence for the application.
-	API           *API                    // API provides access to various Chatango APIs used by the application.
+	persistence   Persistence             // Persistence manages data persistence for the application.
 	Private       Private                 // Private represents the private chat functionality of the application.
 	Groups        SyncMap[string, *Group] // Groups stores the groups the application is connected to.
-	handlers      []Handler               // handlers contains the registered event handlers for the application.
+	eventHandlers []Handler               // eventHandlers contains the registered event handlers for the application.
+	errorHandlers []Handler               // errorHandlers contains the registered error handlers for the application.
 	interruptChan chan os.Signal          // interruptChan receives interrupt signals to gracefully stop the application.
 	context       context.Context         // Context for running the application.
 	cancelCtx     context.CancelFunc      // Function for stopping the application.
 	initialized   bool                    // initialized indicates whether the application has been initialized.
-	mu            sync.Mutex              // mu is a mutex used for locking access to critical sections.
 }
 
 // AddHandler adds a new handler to the application.
 // It returns the `*Application` to allow for nesting.
 func (app *Application) AddHandler(handler Handler) *Application {
-	app.mu.Lock()
-	defer app.mu.Unlock()
-
 	if ch, ok := handler.(*CommandHandler); ok {
 		ch.app = app
 	}
 
-	app.handlers = append(app.handlers, handler)
+	app.eventHandlers = append(app.eventHandlers, handler)
+
 	return app
 }
 
 // RemoveHandler removes a handler from the application.
-func (app *Application) RemoveHandler(handler Handler) {
-	app.mu.Lock()
-	defer app.mu.Unlock()
-
+func (app *Application) RemoveHandler(handler Handler) *Application {
 	// Find and remove the handler from the collection
-	for i, h := range app.handlers {
+	for i, h := range app.eventHandlers {
 		if h == handler {
-			app.handlers = append(app.handlers[:i], app.handlers[i+1:]...)
+			app.eventHandlers = append(app.eventHandlers[:i], app.eventHandlers[i+1:]...)
 			break
 		}
 	}
+
+	return app
 }
 
-// Dispatch dispatches an event to the appropriate handler.
-func (app *Application) Dispatch(event *Event) {
+// AddHandler adds a new handler to the application.
+// It returns the `*Application` to allow for nesting.
+func (app *Application) AddErrorHandler(handler Handler) *Application {
+	if ch, ok := handler.(*CommandHandler); ok {
+		ch.app = app
+	}
+
+	app.errorHandlers = append(app.errorHandlers, handler)
+
+	return app
+}
+
+// RemoveHandler removes a handler from the application.
+func (app *Application) RemoveErrorHandler(handler Handler) *Application {
+	// Find and remove the handler from the collection
+	for i, h := range app.errorHandlers {
+		if h == handler {
+			app.errorHandlers = append(app.errorHandlers[:i], app.errorHandlers[i+1:]...)
+			break
+		}
+	}
+
+	return app
+}
+
+// UsePersistence enables the persistence.
+func (app *Application) UsePersistence(persistence Persistence) *Application {
+	app.persistence = persistence
+
+	return app
+}
+
+// dispatchEvent dispatches an event to the appropriate handler.
+func (app *Application) dispatchEvent(event *Event) {
 	var context *Context
 
-	for _, handler := range app.handlers {
+	for _, handler := range app.eventHandlers {
 		if handler.Check(event) {
 			if context == nil {
 				context = &Context{
 					App:     app,
-					BotData: app.Persistence.GetBotData(),
+					BotData: app.persistence.GetBotData(),
 				}
 
 				if event.IsPrivate && event.User != nil && !event.User.IsAnon {
-					context.ChatData = app.Persistence.GetChatData(strings.ToLower(event.User.Name))
-				} else {
-					context.ChatData = app.Persistence.GetChatData(event.Group.Name)
+					context.ChatData = app.persistence.GetChatData(strings.ToLower(event.User.Name))
+				} else if event.Group != nil {
+					context.ChatData = app.persistence.GetChatData(event.Group.Name)
 				}
 			}
 
-			handler.Invoke(event, context)
-			break
+			func() {
+				defer func() {
+					if err := recover(); err != nil && event.Type != OnError {
+						event.Type = OnError
+						event.Error = err
+
+						app.dispatchEvent(event)
+					}
+				}()
+
+				handler.Invoke(event, context)
+			}()
 		}
 	}
 }
 
 // Initialize initializes the application.
-func (app *Application) Initialize() {
-	if app.Persistence == nil {
-		app.Persistence = new(Persistence)
+func (app *Application) Initialize() *Application {
+	if app.persistence == nil {
+		// Using the GobPersistence without Filename as a dummy.
+		app.persistence = new(GobPersistence)
 	}
-	app.Persistence.Initialize()
-
-	app.API = &API{
-		Username: app.Config.Username,
-		Password: app.Config.Password,
-	}
-	app.API.Initialize()
+	app.persistence.Initialize()
 
 	app.Groups = NewSyncMap[string, *Group]()
 	app.checkConfig()
 	app.initialized = true
+
+	return app
 }
 
 // checkConfig checks certain configurations and assigns default values if they are left unset.
@@ -115,7 +150,7 @@ func (app *Application) checkConfig() {
 }
 
 // Start starts the application.
-func (app *Application) Start(ctx context.Context) {
+func (app *Application) Start(ctx context.Context) *Application {
 	if !app.initialized {
 		panic("the application is not initialized")
 	}
@@ -125,6 +160,8 @@ func (app *Application) Start(ctx context.Context) {
 	}
 	app.context, app.cancelCtx = context.WithCancel(ctx)
 
+	initAPI(app.Config.Username, app.Config.Password, ctx)
+
 	for _, groupName := range app.Config.Groups {
 		go app.JoinGroup(groupName)
 	}
@@ -132,12 +169,14 @@ func (app *Application) Start(ctx context.Context) {
 		go app.ConnectPM()
 	}
 
-	app.Persistence.StartAutoSave(app.context)
+	app.persistence.Runner(app.context)
 
 	app.interruptChan = make(chan os.Signal, 1)
 	signal.Notify(app.interruptChan, os.Interrupt, syscall.SIGTERM)
 
-	app.Dispatch(&Event{Type: OnStart})
+	app.dispatchEvent(&Event{Type: OnStart})
+
+	return app
 }
 
 // Park waits for the application to stop or receive an interrupt signal.
@@ -151,7 +190,7 @@ func (app *Application) Park() {
 
 // Stop stops the application.
 func (app *Application) Stop() {
-	app.Dispatch(&Event{Type: OnStart})
+	app.dispatchEvent(&Event{Type: OnStop})
 
 	var wg sync.WaitGroup
 
@@ -167,12 +206,12 @@ func (app *Application) Stop() {
 			group.Disconnect()
 			wg.Done()
 		}()
-		return false
+		return true
 	}
 	app.Groups.Range(cb)
 
 	wg.Wait()
-	app.Persistence.Close()
+	app.persistence.Close()
 	app.cancelCtx()
 }
 
@@ -183,7 +222,7 @@ func (app *Application) JoinGroup(groupName string) error {
 		return ErrAlreadyConnected
 	}
 
-	if isGroup, err := app.API.IsGroup(groupName); err != nil || !isGroup {
+	if isGroup, err := publicAPI.IsGroup(groupName); err != nil || !isGroup {
 		return ErrNotAGroup
 	}
 
@@ -239,7 +278,22 @@ func (app *Application) DisconnectPM() {
 	app.Private.Disconnect()
 }
 
-// New creates a new instance of the `*Application` with the provided configuration.
+// GetContext returns the `context.Context` of the application.
+func (app *Application) GetContext() context.Context {
+	return app.context
+}
+
+// PrivateAPI returns the `PrivateAPI` used in the application.
+func (app *Application) PrivateAPI() *PrivateAPI {
+	return privateAPI
+}
+
+// PublicAPI returns the `PublicAPI` used in the application.
+func (app *Application) PublicAPI() *PublicAPI {
+	return publicAPI
+}
+
+// New creates a new instance of the Application with the provided configuration.
 func New(config *Config) *Application {
 	return &Application{Config: config}
 }
