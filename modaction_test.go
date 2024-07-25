@@ -96,7 +96,7 @@ func TestParseModActions(t *testing.T) {
 			User:   "user1",
 			IP:     "127.0.0.1",
 			Target: "target1",
-			Time:   time.Date(2023, time.July, 4, 23, 38, 24, 0, time.Local),
+			Time:   time.Date(2023, time.July, 4, 16, 38, 24, 0, time.UTC).Local(),
 			Extra:  "[1,2,3]",
 		},
 		{
@@ -105,10 +105,11 @@ func TestParseModActions(t *testing.T) {
 			User:   "user2",
 			IP:     "127.0.0.1",
 			Target: "target2",
-			Time:   time.Date(2023, time.July, 4, 23, 38, 24, 0, time.Local),
+			Time:   time.Date(2023, time.July, 4, 16, 38, 24, 0, time.UTC).Local(),
 			Extra:  "true",
 		},
 	}
 	result := ParseModActions(data)
 	assert.Equal(t, *expected[0], *result[0], "ParseModActions() should return the expected ModAction slice")
+	assert.Equal(t, *expected[1], *result[1], "ParseModActions() should return the expected ModAction slice")
 }

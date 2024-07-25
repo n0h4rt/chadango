@@ -101,7 +101,7 @@ var (
 	AnonSeedRe         = regexp.MustCompile(`<n\d{4}/>`)
 	NameColorRe        = regexp.MustCompile(`<n([\da-fA-F]{1,6})\/>`)
 	FontStyleRe        = regexp.MustCompile(`<f x([\da-fA-F]+)?="([\d\w]+)?">`)
-	NameFontTag        = regexp.MustCompile(`<[nf]\s[^>]*>`)
+	NameFontTag        = regexp.MustCompile(`<[nf]\s?[^>]*>`)
 	PrivateFontStyleRe = regexp.MustCompile(`<g x(\d+)?s([\da-fA-F]+)?="([\d\w]+)?">`)
 
 	// Go does not support negative lookahead `<(?!br\s*\/?>).*?>`.
