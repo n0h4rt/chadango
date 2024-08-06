@@ -4,7 +4,7 @@ go 1.20
 
 require (
 	github.com/rs/zerolog v1.33.0
-	github.com/stretchr/testify v1.8.4
+	github.com/stretchr/testify v1.9.0
 	golang.org/x/net v0.23.0
 )
 
