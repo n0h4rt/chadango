@@ -10,6 +10,9 @@ import (
 )
 
 // Private represents a private message with various properties and state.
+//
+// It provides methods for connecting, disconnecting, sending messages, retrieving user status, and managing settings.
+// The [Private] struct also handles events related to private messages, friend status, and user profile updates.
 type Private struct {
 	App       *Application // Reference to the application.
 	Name      string       // The name of the group.
@@ -38,7 +41,12 @@ type Private struct {
 }
 
 // Connect establishes a connection to the server.
-// It returns an error if the connection cannot be established.
+//
+// Args:
+//   - ctx: The context for the connection.
+//
+// Returns:
+//   - error: An error if the connection cannot be established.
 func (p *Private) Connect(ctx context.Context) (err error) {
 	if p.Connected {
 		return ErrAlreadyConnected
@@ -70,6 +78,16 @@ func (p *Private) Connect(ctx context.Context) (err error) {
 	return
 }
 
+// connect establishes a WebSocket connection to the PM server.
+//
+// It performs the necessary login steps using the private API, retrieves the
+// authentication token, and initializes the WebSocket connection and channels.
+// The function attempts to send a login request and waits for an "OK" or "DENIED"
+// response within 5 attempts. If the login is successful, it sustains the connection
+// and starts listening for incoming events.
+//
+// Returns:
+//   - error: An error if the connection cannot be established.
 func (p *Private) connect() (err error) {
 	if err = privateAPI.Login(); err != nil {
 		return
@@ -97,7 +115,7 @@ func (p *Private) connect() (err error) {
 		return
 	}
 
-	// Random responses may be received; expecting either OK or DENIED within 5 loops.
+	// Random responses may be received, expecting either "OK" or "DENIED" within 5 loops.
 	for i := 0; i < 5; i++ {
 		if frame, err = p.ws.Recv(); err != nil {
 			return
@@ -181,6 +199,9 @@ func (p *Private) Disconnect() {
 }
 
 // Reconnect attempts to reconnect to the PM server.
+//
+// Returns:
+//   - error: An error if the reconnection fails.
 func (p *Private) Reconnect() (err error) {
 	p.ws.Close()
 
@@ -204,7 +225,17 @@ func (p *Private) Reconnect() (err error) {
 	return ErrRetryEnds
 }
 
-// Send will join the `args` with a ":" separator and then send it to the server asynchronously.
+// Send will join the [args] with a ":" separator and then send it to the server asynchronously.
+//
+// Note:
+//   - A terminator should be included in the last [args].
+//   - The terminator can be "\r\n" or "\x00" depending on the command.
+//
+// Args:
+//   - args: The arguments to send to the server.
+//
+// Returns:
+//   - error: An error if the sending fails.
 func (p *Private) Send(args ...string) error {
 	if !p.ws.Connected {
 		return ErrNotConnected
@@ -224,11 +255,15 @@ func (p *Private) Send(args ...string) error {
 	return p.ws.Send(command + terminator)
 }
 
-// SyncSendWithTimeout will send the `args` and wait until receiving the correct reply or until timeout.
-// First, a `p.takeOver` request will be made and it will wait until the listener goroutine catches it.
-// Then, the `args` will be sent to the server.
-// Each time a frame is received, the `callback` function is invoked and passed the frame.
-// The `callback` should return `false` if a correct frame is acquired, and `true` otherwise.
+// SyncSendWithTimeout will send the [args] and wait until receiving the correct reply or until timeout.
+//
+// Args:
+//   - callback: The function to call for each received frame.
+//   - timeout: The timeout duration for the operation.
+//   - args: The arguments to send to the server.
+//
+// Returns:
+//   - error: An error if the operation fails.
 func (p *Private) SyncSendWithTimeout(callback func(string) bool, timeout time.Duration, args ...string) (err error) {
 	ctx, cancel := context.WithTimeout(p.context, timeout)
 	defer cancel()
@@ -262,17 +297,32 @@ func (p *Private) SyncSendWithTimeout(callback func(string) bool, timeout time.D
 	}
 }
 
-// SyncSend will send the `args` and wait until receiving the correct reply or until timeout (default to 5 seconds).
-// For more information, refer to the documentation of `p.SyncSendWithTimeout`.
-func (p *Private) SyncSend(cb func(string) bool, text ...string) error {
-	return p.SyncSendWithTimeout(cb, SYNC_SEND_TIMEOUT, text...)
+// SyncSend will send the [args] and wait until receiving the correct reply or until timeout (default to 5 seconds).
+//
+// Args:
+//   - cb: The function to call for each received frame.
+//   - args: The arguments to send to the server.
+//
+// Returns:
+//   - error: An error if the operation fails.
+func (p *Private) SyncSend(cb func(string) bool, args ...string) error {
+	return p.SyncSendWithTimeout(cb, SYNC_SEND_TIMEOUT, args...)
 }
 
 // SendMessage sends a private message to the specified username with the given text and optional arguments.
+//
 // It returns an error if any occurs during the message sending process.
 // The text can include formatting placeholders (%s, %d, etc.), and optional arguments can be provided to fill in these placeholders.
 // The function also handles a flood warning, a flood ban, and the maximum number of unread messages (51) has been reached.
 // The function replaces newlines with the `<br/>` HTML tag to format the message properly.
+//
+// Args:
+//   - username: The username to send the message to.
+//   - text: The message text.
+//   - a: Optional arguments to fill in placeholders in the message text.
+//
+// Returns:
+//   - error: An error if any occurs during the message sending process.\
 func (p *Private) SendMessage(username, text string, a ...any) (err error) {
 	cb := func(frame string) bool {
 		head, _, _ := strings.Cut(frame, ":")
@@ -318,6 +368,13 @@ func (p *Private) SendMessage(username, text string, a ...any) (err error) {
 }
 
 // Track retrieves the online status of the username.
+//
+// Args:
+//   - username: The username to track.
+//
+// Returns:
+//   - UserStatus: The online status of the username.
+//   - error: An error if the operation fails.
 func (p *Private) Track(username string) (status UserStatus, err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
@@ -346,6 +403,10 @@ func (p *Private) Track(username string) (status UserStatus, err error) {
 }
 
 // GetSettings retrieves the current settings.
+//
+// Returns:
+//   - PrivateSetting: The current settings.
+//   - error: An error if the operation fails.
 func (p *Private) GetSettings() (setting PrivateSetting, err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
@@ -375,6 +436,12 @@ func (p *Private) GetSettings() (setting PrivateSetting, err error) {
 }
 
 // SetSettings updates the settings with the provided values.
+//
+// Args:
+//   - setting: The new settings to apply.
+//
+// Returns:
+//   - error: An error if the operation fails.
 func (p *Private) SetSettings(setting PrivateSetting) (err error) {
 	onoff := func(state bool) string {
 		if state {
@@ -399,6 +466,10 @@ func (p *Private) SetSettings(setting PrivateSetting) (err error) {
 }
 
 // GetFriendList retrieves the list of friends with their corresponding status.
+//
+// Returns:
+//   - []UserStatus: The list of friends and their status.
+//   - error: An error if the operation fails.
 func (p *Private) GetFriendList() (friendlist []UserStatus, err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
@@ -434,6 +505,13 @@ func (p *Private) GetFriendList() (friendlist []UserStatus, err error) {
 }
 
 // AddFriend adds a username to the friend list.
+//
+// Args:
+//   - username: The username to add.
+//
+// Returns:
+//   - UserStatus: The status of the added friend.
+//   - error: An error if the operation fails.
 func (p *Private) AddFriend(username string) (status UserStatus, err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
@@ -465,6 +543,12 @@ func (p *Private) AddFriend(username string) (status UserStatus, err error) {
 }
 
 // RemoveFriend removes the username from the friend list.
+//
+// Args:
+//   - username: The username to remove.
+//
+// Returns:
+//   - error: An error if the operation fails.
 func (p *Private) RemoveFriend(username string) (err error) {
 	cb := func(frame string) bool {
 		head, _, _ := strings.Cut(frame, ":")
@@ -483,6 +567,10 @@ func (p *Private) RemoveFriend(username string) (err error) {
 }
 
 // GetBlocked retrieves the list of blocked users.
+//
+// Returns:
+//   - users: A slice of blocked users.
+//   - error: An error if the operation fails.
 func (p *Private) GetBlocked() (users []*User, err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
@@ -504,6 +592,12 @@ func (p *Private) GetBlocked() (users []*User, err error) {
 }
 
 // Block blocks the user with the specified username.
+//
+// Args:
+//   - username: The username to block.
+//
+// Returns:
+//   - error: An error if the operation fails.
 func (p *Private) Block(username string) (err error) {
 	cb := func(frame string) bool {
 		head, _, _ := strings.Cut(frame, ":")
@@ -522,6 +616,12 @@ func (p *Private) Block(username string) (err error) {
 }
 
 // Unblock unblocks the user with the specified username.
+//
+// Args:
+//   - username: The username to unblock.
+//
+// Returns:
+//   - error: An error if the operation fails.
 func (p *Private) Unblock(username string) (err error) {
 	cb := func(frame string) bool {
 		head, _, _ := strings.Cut(frame, ":")
@@ -540,6 +640,13 @@ func (p *Private) Unblock(username string) (err error) {
 }
 
 // ConnectUser opens a chat session with the username.
+//
+// Args:
+//   - username: The username to connect with.
+//
+// Returns:
+//   - UserStatus: The status of the connected user.
+//   - error: An error if the operation fails.
 func (p *Private) ConnectUser(username string) (status UserStatus, err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
@@ -567,12 +674,25 @@ func (p *Private) ConnectUser(username string) (status UserStatus, err error) {
 }
 
 // DisconnectUser closes the chat session with the username.
+//
+// Args:
+//   - username: The username to disconnect from.
+//
+// Returns:
+//   - error: An error if the operation fails.
 func (p *Private) DisconnectUser(username string) (err error) {
 	return p.Send("disconnect", username, "\r\n")
 }
 
 // GetPresence retrieves the status of multiple usernames.
-// If the user is offline, the corresponding `UserStatus.Time` is not accurate.
+// If the user is offline, the corresponding [UserStatus.Time] is not accurate.
+//
+// Args:
+//   - usernames: A slice of usernames to retrieve the status for.
+//
+// Returns:
+//   - []UserStatus: A slice of `UserStatus` objects representing the status of each username.
+//   - error: An error if the operation fails.
 func (p *Private) GetPresence(usernames []string) (statuslist []UserStatus, err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
@@ -605,6 +725,9 @@ func (p *Private) GetPresence(usernames []string) (statuslist []UserStatus, err 
 }
 
 // ProfileRefresh notifies the server to refresh the profile.
+//
+// Returns:
+//   - error: An error if the operation fails.
 func (p *Private) ProfileRefresh() error {
 	cb := func(frame string) bool {
 		head, _, _ := strings.Cut(frame, ":")
@@ -622,39 +745,63 @@ func (p *Private) ProfileRefresh() error {
 }
 
 // WentIdle notifies the server that the user went idle.
-func (p *Private) WentIdle() {
+//
+// Returns:
+//   - error: An error if the operation fails.
+func (p *Private) WentIdle() error {
 	p.IsIdle = true
-	p.Send("idle", "0", "\r\n")
+	return p.Send("idle", "0", "\r\n")
 }
 
 // WentActive notifies the server that the user went active.
-func (p *Private) WentActive() {
+//
+// Returns:
+//   - error: An error if the operation fails.
+func (p *Private) WentActive() (err error) {
 	// Stops the previous timer.
 	if !p.idleTimer.Stop() {
 		// It appears that the callback has already been fired. Draining the channel.
 		<-p.idleTimer.C
 	}
 	if p.IsIdle {
-		p.Send("idle", "1", "\r\n")
+		err = p.Send("idle", "1", "\r\n")
+		if err != nil {
+			return
+		}
 		p.IsIdle = false
 	}
 	// Setup a new idle timer.
-	p.idleTimer = time.AfterFunc(60*time.Second, p.WentIdle)
+	p.idleTimer = time.AfterFunc(60*time.Second, func() { p.WentIdle() })
+
+	return
 }
 
 // PropagateEvent propagates the WebSocket frame back to the listener goroutine.
-// It is utilized when the `p.SyncSend` callback receives unwanted frames.
+//
+// It is utilized when the [Private.SyncSend] callback receives unwanted frames.
+//
+// Args:
+//   - frame: The WebSocket frame to propagate.
 func (p *Private) PropagateEvent(frame string) {
 	p.events <- frame
 }
 
-// GetContext returns the `context.Context` of the private chat.
+// GetContext returns the [context.Context] of the private chat.
+//
+// Returns:
+//   - context.Context: The context of the private chat.
 func (p *Private) GetContext() context.Context {
 	return p.context
 }
 
 // wsOnError handles WebSocket errors that occur during communication.
-func (p *Private) wsOnError(e error) {
+//
+// It attempts to reconnect if the connection is still active.
+// If the reconnection fails, it disconnects and dispatches the [OnPrivateDisconnected] event.
+//
+// Args:
+//   - err: The WebSocket error.
+func (p *Private) wsOnError(err error) {
 	close(p.events)
 	close(p.takeOver)
 	if p.Connected {
@@ -682,6 +829,11 @@ func (p *Private) wsOnError(e error) {
 }
 
 // wsOnFrame handles incoming WebSocket frames.
+//
+// It parses the frame and dispatches the corresponding event.
+//
+// Args:
+//   - frame: The WebSocket frame to handle.
 func (p *Private) wsOnFrame(frame string) {
 	defer func() {
 		if err := recover(); err != nil {
@@ -730,7 +882,7 @@ func (p *Private) wsOnFrame(frame string) {
 	case "block_list", "blocked", "unblocked":
 		fallthrough
 	case "connect", "presence":
-		// This occurs when the `p.SyncSendWithTimeout` fails to capture these events.
+		// This occurs when the [Private.SyncSendWithTimeout] fails to capture these events.
 		// I'm leaving this here for debugging purposes.
 		log.Debug().Str("Name", p.Name).Str("Frame", frame).Msg("Uncaptured")
 	default:
@@ -744,6 +896,7 @@ func (p *Private) wsOnFrame(frame string) {
 }
 
 // eventServerTime handles the server time event.
+//
 // It also saves the time differences between the client and the server (serverTime - clientTime).
 func (p *Private) eventServerTime(data string) {
 	p.LoginTime, _ = ParseTime(data)
@@ -751,9 +904,11 @@ func (p *Private) eventServerTime(data string) {
 }
 
 // eventOK handles the OK event.
+//
+// It dispatches the [OnPrivateConnected] event and sets up an idle timer.
 func (p *Private) eventOK() {
 	// Send the idle command 1 minute after the connection is established.
-	p.idleTimer = time.AfterFunc(60*time.Second, p.WentIdle)
+	p.idleTimer = time.AfterFunc(60*time.Second, func() { p.WentIdle() })
 
 	// if p.App.Config.EnableBG {
 	// 	go p.SetBackground(true)
@@ -773,6 +928,7 @@ func (p *Private) eventSellerName(data string) {
 }
 
 // eventKickedOff handles the kicked off event.
+//
 // This event is triggered when the same account initiates another PM session.
 func (p *Private) eventKickedOff() {
 	p.Disconnect()

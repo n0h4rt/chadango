@@ -9,13 +9,16 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// Persistence is an interface that defines the methods for managing data persistence.
+//
+// It provides methods for initializing, running, closing, and accessing data stored in the persistence layer.
 type Persistence interface {
-	Initialize() error
-	Runner(context.Context)
-	Close() error
-	GetBotData() *SyncMap[string, any]
-	GetChatData(string) *SyncMap[string, any]
-	DelChatData(string)
+	Initialize() error                        // Initialize initializes the persistence layer.
+	Runner(context.Context)                   // Runner starts a goroutine that manages the persistence layer.
+	Close() error                             // Close closes the persistence layer and saves any pending data.
+	GetBotData() *SyncMap[string, any]        // GetBotData returns a pointer to the bot-related data.
+	GetChatData(string) *SyncMap[string, any] // GetChatData returns a pointer to the chat-related data for the given key.
+	DelChatData(string)                       // DelChatData deletes the chat-related data for the given key.
 }
 
 // GobPersistence is responsible for loading and saving data to a gob file periodically.
@@ -31,6 +34,12 @@ type GobPersistence struct {
 }
 
 // Load loads the data from the file into the GobPersistence struct.
+//
+// Args:
+//   - none
+//
+// Returns:
+//   - error: An error if loading fails.
 func (p *GobPersistence) Load() error {
 	if p.Filename == "" {
 		return nil
@@ -58,6 +67,9 @@ func (p *GobPersistence) Load() error {
 }
 
 // Save saves the data from the GobPersistence struct to the file.
+//
+// Returns:
+//   - error: An error if saving fails.
 func (p *GobPersistence) Save() error {
 	if p.Filename == "" {
 		return nil
@@ -85,6 +97,9 @@ func (p *GobPersistence) Save() error {
 }
 
 // Initialize initializes the GobPersistence struct by loading the data from the file and starting the auto save routine.
+//
+// Returns:
+//   - error: An error if initialization fails.
 func (p *GobPersistence) Initialize() error {
 	p.BotData = NewSyncMap[string, any]()
 	p.ChatData = NewSyncMap[string, *SyncMap[string, any]]()
@@ -92,6 +107,13 @@ func (p *GobPersistence) Initialize() error {
 	return p.Load()
 }
 
+// Runner starts a goroutine that manages the persistence layer.
+//
+// Args:
+//   - ctx: The context for running the auto save operations.
+//
+// Returns:
+//   - none
 func (p *GobPersistence) Runner(ctx context.Context) {
 	if p.Filename == "" {
 		return
@@ -107,6 +129,9 @@ func (p *GobPersistence) Runner(ctx context.Context) {
 }
 
 // Close stops the auto save routine and saves the data to the file.
+//
+// Returns:
+//   - error: An error if closing fails.
 func (p *GobPersistence) Close() error {
 	if p.cancelCtx != nil {
 		p.cancelCtx()
@@ -131,12 +156,21 @@ func (p *GobPersistence) autoSave() {
 }
 
 // GetBotData returns a pointer to the BotData.
+//
+// Returns:
+//   - *SyncMap[string, any]: A pointer to the bot-related data.
 func (p *GobPersistence) GetBotData() *SyncMap[string, any] {
 	return &p.BotData
 }
 
 // GetChatData returns a pointer to the ChatData for the given key.
 // If the ChatData does not exist, it creates a new one and returns it.
+//
+// Args:
+//   - key: The key to retrieve the ChatData for.
+//
+// Returns:
+//   - *SyncMap[string, any]: A pointer to the chat-related data for the given key.
 func (p *GobPersistence) GetChatData(key string) *SyncMap[string, any] {
 	chatData, ok := p.ChatData.Get(key)
 	if !ok {
@@ -148,6 +182,9 @@ func (p *GobPersistence) GetChatData(key string) *SyncMap[string, any] {
 }
 
 // DelChatData deletes the ChatData for the given key.
+//
+// Args:
+//   - key: The key to delete the ChatData for.
 func (p *GobPersistence) DelChatData(key string) {
 	p.ChatData.Del(key)
 }
