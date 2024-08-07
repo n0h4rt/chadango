@@ -47,8 +47,10 @@ const (
 	API_PHOTO_FULL_IMG = "https://fp.chatango.com/profileimg/%s/%s/%s/full.jpg"
 )
 
+type MessageChannel int64
+
 const (
-	_ int64 = 1 << iota
+	_ MessageChannel = 1 << iota
 	_
 	FlagPremium
 	FlagBackground
@@ -56,13 +58,13 @@ const (
 	FlagCensored
 	FlagModIcon
 	FlagStaffIcon
-	FlagRedChannel  // js: #ed1c24
-	_               // js: #ee7f22
-	_               // js: #39b54a
-	FlagBlueChannel // js: #25aae1
-	_               // js: #0e76bc
-	_               // js: #662d91
-	_               // js: #ed217c
+	FlagRedChannel    // js: #ed1c24
+	FlagOrangeChannel // js: #ee7f22
+	FlagGreenChannel  // js: #39b54a
+	FlagBlueChannel   // js: #25aae1
+	FlagAzureChannel  // js: #0e76bc
+	FlagPurpleChannel // js: #662d91
+	FlagPinkChannel   // js: #ed217c
 	FlagModChannel
 )
 

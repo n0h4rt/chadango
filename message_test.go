@@ -9,63 +9,59 @@ import (
 
 func TestParseGroupMessage(t *testing.T) {
 	group := &Group{
-		LoginName: "testuser",
-		UserID:    12345,
+		LoginName: "Nekonyan",
+		UserID:    48875733,
 	}
 	tests := []struct {
-		name     string
-		data     string
-		want     *Message
-		wantUser *User
+		name string
+		data string
+		want *Message
 	}{
 		{
 			name: "NormalMessage",
-			data: "1688488704:testuser:12345:12345:moderationID:messageID:userIP:0:rawText",
+			data: "1717866894:Nekonyan::48875733:moderationID:messageID:userIP:2392::<n33FFFF/><f x11000=\"century gothic\">Press F in the chat",
 			want: &Message{
-				Time:         time.Unix(1688488704, 0),
-				UserID:       12345,
+				Time:         time.Unix(1717866894, 0),
+				UserID:       48875733,
 				ModerationID: "moderationID",
 				ID:           "messageID",
 				UserIP:       "userIP",
-				RawText:      "rawText",
-				Text:         "rawText",
-				User:         &User{Name: "testuser", IsSelf: true},
+				RawText:      "<n33FFFF/><f x11000=\"century gothic\">Press F in the chat",
+				Text:         "Press F in the chat",
+				User:         &User{Name: "Nekonyan", IsSelf: true},
 				FromSelf:     true,
 			},
-			wantUser: &User{Name: "testuser", IsSelf: true},
 		},
 		{
-			name: "AnonymousMessage",
-			data: "1688488704::anonName:12345:moderationID:messageID:userIP:0:rawText",
+			name: "NamedAnonMessage",
+			data: "1721913578.62::anonName:23361675:moderationID:messageID:userIP:0::<n3512/>asdfghjkl",
 			want: &Message{
-				Time:         time.Unix(1688488704, 0),
-				UserID:       12345,
+				Time:         time.Unix(1721913578, int64(.62*1e9)),
+				UserID:       23361675,
 				ModerationID: "moderationID",
 				ID:           "messageID",
 				UserIP:       "userIP",
-				RawText:      "rawText",
-				Text:         "rawText",
+				RawText:      "<n3512/>asdfghjkl",
+				Text:         "asdfghjkl",
 				User:         &User{Name: "anonName", IsAnon: true},
 				FromAnon:     true,
 			},
-			wantUser: &User{Name: "anonName", IsAnon: true},
 		},
 		{
-			name: "AnonymousMessageWithSeed",
-			data: "1688488704::12345:12345:moderationID:messageID:userIP:0:rawText:anonSeed=1234",
+			name: "UnnamedAnonMessage",
+			data: "1721913578.62:::23361675:moderationID:messageID:userIP:0::<n3512/>asdfghjkl",
 			want: &Message{
-				Time:         time.Unix(1688488704, 0),
-				UserID:       12345,
+				Time:         time.Unix(1721913578, int64(.62*1e9)),
+				UserID:       23361675,
 				ModerationID: "moderationID",
 				ID:           "messageID",
 				UserIP:       "userIP",
-				RawText:      "rawText:anonSeed=1234",
-				Text:         "rawText",
-				User:         &User{Name: GetAnonName(1234, 12345), IsAnon: true},
+				RawText:      "<n3512/>asdfghjkl",
+				Text:         "asdfghjkl",
+				User:         &User{Name: GetAnonName(3512, 23361675), IsAnon: true},
 				FromAnon:     true,
-				AnonSeed:     1234,
+				AnonSeed:     3512,
 			},
-			wantUser: &User{Name: GetAnonName(1234, 12345), IsAnon: true},
 		},
 	}
 	for _, tt := range tests {
@@ -78,9 +74,9 @@ func TestParseGroupMessage(t *testing.T) {
 			assert.Equal(t, tt.want.UserIP, got.UserIP)
 			assert.Equal(t, tt.want.RawText, got.RawText)
 			assert.Equal(t, tt.want.Text, got.Text)
-			assert.Equal(t, tt.wantUser.Name, got.User.Name)
-			assert.Equal(t, tt.wantUser.IsAnon, got.User.IsAnon)
-			assert.Equal(t, tt.wantUser.IsSelf, got.User.IsSelf)
+			assert.Equal(t, tt.want.User.Name, got.User.Name)
+			assert.Equal(t, tt.want.User.IsAnon, got.User.IsAnon)
+			assert.Equal(t, tt.want.User.IsSelf, got.User.IsSelf)
 			assert.Equal(t, tt.want.FromAnon, got.FromAnon)
 			assert.Equal(t, tt.want.FromSelf, got.FromSelf)
 		})
@@ -92,10 +88,9 @@ func TestParsePrivateMessage(t *testing.T) {
 		LoginName: "testuser",
 	}
 	tests := []struct {
-		name     string
-		data     string
-		want     *Message
-		wantUser *User
+		name string
+		data string
+		want *Message
 	}{
 		{
 			name: "NormalMessage",
@@ -108,7 +103,6 @@ func TestParsePrivateMessage(t *testing.T) {
 				User:      &User{Name: "testuser"},
 				IsPrivate: true,
 			},
-			wantUser: &User{Name: "testuser"},
 		},
 	}
 	for _, tt := range tests {
@@ -118,7 +112,7 @@ func TestParsePrivateMessage(t *testing.T) {
 			assert.Equal(t, tt.want.ID, got.ID)
 			assert.Equal(t, tt.want.RawText, got.RawText)
 			assert.Equal(t, tt.want.Text, got.Text)
-			assert.Equal(t, tt.wantUser.Name, got.User.Name)
+			assert.Equal(t, tt.want.User.Name, got.User.Name)
 			assert.Equal(t, tt.want.IsPrivate, got.IsPrivate)
 		})
 	}
@@ -126,25 +120,22 @@ func TestParsePrivateMessage(t *testing.T) {
 
 func TestParseAnnouncement(t *testing.T) {
 	group := &Group{
-		LoginName: "testgroup",
+		Name: "testgroup",
 	}
 	tests := []struct {
-		name     string
-		data     string
-		want     *Message
-		wantText string
+		name string
+		data string
+		want *Message
 	}{
 		{
-			name:     "NormalAnnouncement",
-			data:     "testgroup:1688488704:This is an announcement",
-			want:     &Message{RawText: "This is an announcement", Text: "This is an announcement"},
-			wantText: "This is an announcement",
+			name: "NormalAnnouncement",
+			data: "testgroup:1688488704:This is an announcement",
+			want: &Message{RawText: "This is an announcement", Text: "This is an announcement"},
 		},
 		{
-			name:     "AnnouncementWithHTML",
-			data:     "testgroup:1688488704:<font color=\"#FF0000\">This is an announcement</font>",
-			want:     &Message{RawText: "<font color=\"#FF0000\">This is an announcement</font>", Text: "This is an announcement"},
-			wantText: "This is an announcement",
+			name: "AnnouncementWithHTML",
+			data: "testgroup:1688488704:<font color=\"#FF0000\">This is an announcement</font>",
+			want: &Message{RawText: "<font color=\"#FF0000\">This is an announcement</font>", Text: "This is an announcement"},
 		},
 	}
 	for _, tt := range tests {

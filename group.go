@@ -12,6 +12,9 @@ import (
 )
 
 // Group represents a chat group with various properties and state.
+//
+// It provides methods for connecting, disconnecting, sending messages, retrieving user status, and managing settings.
+// The [Group] struct also handles events related to private messages, friend status, and user profile updates.
 type Group struct {
 	App       *Application // Reference to the application.
 	Name      string       // The name of the group.
@@ -53,7 +56,7 @@ type Group struct {
 	TempMessages   SyncMap[string, *Message]        // Map of temporary messages in the group.
 	TempMessageIds SyncMap[string, string]          // Map of temporary message IDs in the group.
 
-	Participants     SyncMap[string, *Participant] // Map of participants in the group. Invoke `g.GetParticipantsStart` to initiate the participant feeds.
+	Participants     SyncMap[string, *Participant] // Map of participants in the group. Invoke [Group.GetParticipantsStart] to initiate the participant feeds.
 	ParticipantCount int64                         // The total count of participants in the group.
 	UserCount        int                           // The count of registered users in the group.
 	AnonCount        int                           // The count of anonymous users in the group.
@@ -68,7 +71,12 @@ func (g *Group) initFields() {
 }
 
 // Connect establishes a connection to the server.
-// It returns an error if the connection cannot be established.
+//
+// Args:
+//   - ctx: The context for the connection.
+//
+// Returns:
+//   - error: An error if the connection cannot be established.
 func (g *Group) Connect(ctx context.Context) (err error) {
 	if g.Connected {
 		return ErrAlreadyConnected
@@ -101,6 +109,14 @@ func (g *Group) Connect(ctx context.Context) (err error) {
 	return
 }
 
+// connect establishes a WebSocket connection to the group chat server.
+//
+// It initializes necessary channels and attempts to log in to the group chat.
+// If successful, it sets up the WebSocket to sustain the connection and starts
+// listening for incoming events.
+//
+// Returns:
+//   - error: An error if the connection cannot be established.
 func (g *Group) connect() (err error) {
 	g.ws = &WebSocket{
 		OnError: g.wsOnError,
@@ -207,7 +223,10 @@ func (g *Group) Disconnect() {
 	g.ws.Close()
 }
 
-// Reconnect attempts to reconnect to the server.
+// Reconnect reconnects the group to the server.
+//
+// Returns:
+//   - error: An error if the reconnection fails.
 func (g *Group) Reconnect() (err error) {
 	g.ws.Close()
 
@@ -228,7 +247,17 @@ func (g *Group) Reconnect() (err error) {
 	return ErrRetryEnds
 }
 
-// Send will join the `args` with a ":" separator and then send it to the server asynchronously.
+// Send joins the [args] with a ":" separator and then sends it to the server asynchronously.
+//
+// Note:
+//   - A terminator should be included in the last [args].
+//   - The terminator can be "\r\n" or "\x00" depending on the command.
+//
+// Args:
+//   - args: The arguments to send to the server.
+//
+// Returns:
+//   - error: An error if sending the message fails.
 func (g *Group) Send(args ...string) error {
 	if !g.ws.Connected {
 		return ErrNotConnected
@@ -248,11 +277,20 @@ func (g *Group) Send(args ...string) error {
 	return g.ws.Send(command + terminator)
 }
 
-// SyncSendWithTimeout will send the `args` and wait until receiving the correct reply or until timeout.
-// First, a `g.takeOver` request will be made and it will wait until the listener goroutine catches it.
-// Then, the `args` will be sent to the server.
-// Each time a frame is received, the `callback` function is invoked and passed the frame.
-// The `callback` should return `false` if a correct frame is acquired, and `true` otherwise.
+// SyncSendWithTimeout sends the specified arguments and waits for a response or timeout.
+//
+// First, a [Group.takeOver] request will be made and it will wait until the [listener] goroutine catches it.
+// Then, the [args] will be sent to the server.
+// Each time a frame is received, the [callback] function is invoked and passed the frame.
+// The callback should return [false] if a correct frame is acquired, and [true] otherwise.
+//
+// Args:
+//   - callback: The function to handle received frames.
+//   - timeout: The duration to wait for a response.
+//   - args: The arguments to send.
+//
+// Returns:
+//   - error: An error if sending the arguments or receiving a response fails.
 func (g *Group) SyncSendWithTimeout(callback func(string) bool, timeout time.Duration, args ...string) (err error) {
 	ctx, cancel := context.WithTimeout(g.context, timeout)
 	defer cancel()
@@ -294,21 +332,37 @@ func (g *Group) SyncSendWithTimeout(callback func(string) bool, timeout time.Dur
 	}
 }
 
-// SyncSend will send the `args` and wait until receiving the correct reply or until timeout (default to 5 seconds).
-// For more information, refer to the documentation of `g.SyncSendWithTimeout`.
-func (g *Group) SyncSend(cb func(string) bool, text ...string) error {
-	return g.SyncSendWithTimeout(cb, SYNC_SEND_TIMEOUT, text...)
+// SyncSend will send the [args] and wait until receiving the correct reply or until timeout (default to 5 seconds).
+//
+// For more information, refer to the documentation of [Group.SyncSendWithTimeout].
+//
+// Args:
+//   - callback: The function to handle received frames.
+//   - args: The arguments to send.
+//
+// Returns:
+//   - error: An error if sending the arguments or receiving a response fails.
+func (g *Group) SyncSend(callback func(string) bool, args ...string) error {
+	return g.SyncSendWithTimeout(callback, SYNC_SEND_TIMEOUT, args...)
 }
 
 // SendMessage sends a message to the group with the specified text and optional arguments.
-// It returns a pointer to the sent `*Message` and an error (if any occurred).
+//
+// It returns a pointer to the sent [*Message] and an error (if any occurred).
 // The text can include formatting placeholders (%s, %d, etc.), and optional arguments can be provided to fill in these placeholders.
 // The function also handles flood warnings, restricted messages, spam warnings, rate limiting, and other Chatango-specific events.
 // If the group is logged in, the message text is styled with the group's name color, text size, text color, and text font.
-// If the group is anonymous, the message text is modified with the anonymous seed based on the group's `AnonName` and `UserID`.
-// The function replaces newlines with the `<br/>` HTML tag to format the message properly.
+// If the group is anonymous, the message text is modified with the anonymous seed based on the group's [Group.AnonName] and [Group.UserID].
+// The function replaces newlines with the "<br/>" HTML tag to format the message properly.
+//
+// Args:
+//   - text: The message text.
+//   - a: Optional arguments to format the message text.
+//
+// Returns:
+//   - *Message: The sent message.
+//   - error: An error if sending the message fails.
 func (g *Group) SendMessage(text string, a ...any) (msg *Message, err error) {
-	// The received "b" and "u" frames should be returned to `g.Events`.
 	var idBuffer = map[string]string{}
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
@@ -387,7 +441,7 @@ func (g *Group) SendMessage(text string, a ...any) (msg *Message, err error) {
 		return true
 	}
 
-	// I'm not sure what it is for, but it gets sent back to the client when `climited` occurs.
+	// I'm not sure what it is for, but it gets sent back to the client when "climited" occurs.
 	randomString := strconv.FormatInt(int64(15e5*rand.Float64()), 36)
 
 	text = fmt.Sprintf(text, a...)
@@ -415,8 +469,17 @@ func (g *Group) SendMessage(text string, a ...any) (msg *Message, err error) {
 	return
 }
 
-// SendMessage sends the chunked `text` with a size of `chunkSize` and returns the sent `[]*Message`.
+// SendMessageChunked sends the chunked [text] with a size of [chunkSize] and returns the sent [[]*Message].
+//
 // In the event of an error, the already sent messages will be returned along with the error for the unsent message.
+//
+// Args:
+//   - text: The large message text.
+//   - chunkSize: The size of each chunk.
+//
+// Returns:
+//   - []*Message: The sent messages.
+//   - error: An error if sending the message in chunks fails.
 func (g *Group) SendMessageChunked(text string, chunkSize int) (msgs []*Message, err error) {
 	var msg *Message
 	for _, chunk := range SplitTextIntoChunks(text, chunkSize) {
@@ -430,13 +493,23 @@ func (g *Group) SendMessageChunked(text string, chunkSize int) (msgs []*Message,
 }
 
 // IsRestricted checks if the group is restricted.
+//
 // The restriction can originate from either a flood ban or a rate limit.
+//
+// Returns:
+//   - bool: True if the group is restricted.
 func (g *Group) IsRestricted() bool {
 	return g.Restrict.After(time.Now()) || g.RateLimited.After(time.Now())
 }
 
-// GetParticipantsStart initiates the `participant` event feeds and returns the current participants.
-// The `participant` event will be triggered when there is user activity, such as joining, logging out, logging in, or leaving.
+// GetParticipantsStart initiates the "participant" event feeds and returns the current participants.
+//
+// The "participant" event will be triggered when there is user activity,
+// such as joining, logging out, logging in, or leaving.
+//
+// Returns:
+//   - *SyncMap[string, *Participant]: The current participants.
+//   - error: An error if fetching the participants fails.
 func (g *Group) GetParticipantsStart() (p *SyncMap[string, *Participant], err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
@@ -485,12 +558,21 @@ func (g *Group) GetParticipantsStart() (p *SyncMap[string, *Participant], err er
 }
 
 // GetParticipantsStop stops the participant event feeds.
-// This will leave g.Participants, g.UserCount, g.AnonCount out of date.
+//
+// This will leave [Group.Participants], [Group.UserCount], [Group.AnonCount] out of date.
+//
+// Returns:
+//   - error: An error if stopping the fetch fails.
 func (g *Group) GetParticipantsStop() error {
 	return g.Send("gparticipants", "stop", "\r\n")
 }
 
 // GetRateLimit retrieves the rate limit settings for the group.
+//
+// Returns:
+//   - time.Duration: The current rate limit.
+//   - time.Duration: The current rate limit duration.
+//   - error: An error if retrieving the rate limit fails.
 func (g *Group) GetRateLimit() (rate, current time.Duration, err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
@@ -514,6 +596,13 @@ func (g *Group) GetRateLimit() (rate, current time.Duration, err error) {
 }
 
 // SetRateLimit sets the rate limit interval for the group.
+//
+// Args:
+//   - interval: The new rate limit interval.
+//
+// Returns:
+//   - time.Duration: The set rate limit.
+//   - error: An error if setting the rate limit fails.
 func (g *Group) SetRateLimit(interval time.Duration) (rate time.Duration, err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
@@ -533,6 +622,12 @@ func (g *Group) SetRateLimit(interval time.Duration) (rate time.Duration, err er
 }
 
 // GetAnnouncement retrieves the announcement settings for the group.
+//
+// Returns:
+//   - string: The announcement text.
+//   - bool: True if announcements are enabled, otherwise false.
+//   - time.Duration: The interval between announcements.
+//   - error: An error if retrieving the announcement settings fails.
 func (g *Group) GetAnnouncement() (annc string, enabled bool, interval time.Duration, err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
@@ -555,11 +650,26 @@ func (g *Group) GetAnnouncement() (annc string, enabled bool, interval time.Dura
 }
 
 // SetAnnouncement sets the announcement settings for the group.
+//
+// Args:
+//   - annc: The announcement text to set.
+//   - enable: True to enable announcements, false to disable.
+//   - interval: The interval between announcements.
+//
+// Returns:
+//   - error: An error if setting the announcement fails.
 func (g *Group) SetAnnouncement(annc string, enable bool, interval time.Duration) error {
 	return g.Send("updateannouncement", BoolZeroOrOne(enable), fmt.Sprintf("%.0f", interval.Seconds()), "\r\n")
 }
 
 // UpdateGroupFlag updates the group's flag by adding and removing specific flags.
+//
+// Args:
+//   - addition: The flags to add.
+//   - removal: The flags to remove.
+//
+// Returns:
+//   - error: An error if updating the group's flag fails.
 func (g *Group) UpdateGroupFlag(addition, removal int64) (err error) {
 	cb := func(frame string) bool {
 		head, _, _ := strings.Cut(frame, ":")
@@ -585,8 +695,14 @@ func (g *Group) UpdateGroupFlag(addition, removal int64) (err error) {
 }
 
 // GetPremiumInfo retrieves the premium status and expiration time for the group.
+//
 // This function would activate server validation for the premium status.
 // For example, the message background and media won't activate before this command is sent.
+//
+// Returns:
+//   - int: The premium flag.
+//   - time.Time: The expiration time of the premium status.
+//   - error: An error if retrieving the premium info fails.
 func (g *Group) GetPremiumInfo() (flag int, expire time.Time, err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
@@ -609,8 +725,12 @@ func (g *Group) GetPremiumInfo() (flag int, expire time.Time, err error) {
 }
 
 // SetBackground sets the background status of the group.
-// If enable is true, it enables the background feature for the group.
-// If enable is false, it disables the background feature for the group.
+//
+// Args:
+//   - enable: True to enable the background feature, false to disable.
+//
+// Returns:
+//   - error: An error if setting the background fails.
 func (g *Group) SetBackground(enable bool) (err error) {
 	if enable {
 		if g.PremiumExpireAt.IsZero() {
@@ -628,8 +748,12 @@ func (g *Group) SetBackground(enable bool) (err error) {
 }
 
 // SetMedia sets the media status of the group.
-// If enable is true, it enables the media feature for the group.
-// If enable is false, it disables the media feature for the group.
+//
+// Args:
+//   - enable: True to enable the media feature, false to disable.
+//
+// Returns:
+//   - error: An error if setting the media fails.
 func (g *Group) SetMedia(enable bool) (err error) {
 	if enable {
 		if g.PremiumExpireAt.IsZero() {
@@ -647,8 +771,18 @@ func (g *Group) SetMedia(enable bool) (err error) {
 }
 
 // GetBanList retrieves a list of blocked users (ban list) for the group.
+//
 // The offset can be set to zero time to retrieve the newest result.
+// The next offset can be defined from the last [Blocked.Time].
 // The returned order is from newer to older.
+//
+// Args:
+//   - offset: The offset time to start retrieving the ban list.
+//   - amount: The number of banned users to retrieve.
+//
+// Returns:
+//   - []Blocked: A list of blocked users.
+//   - error: An error if retrieving the ban list fails.
 func (g *Group) GetBanList(offset time.Time, ammount int) (banList []Blocked, err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
@@ -690,9 +824,17 @@ func (g *Group) GetBanList(offset time.Time, ammount int) (banList []Blocked, er
 }
 
 // SearchBannedUser searches for a banned user in the group's ban list.
+//
 // The query can be either a user name or an IP address.
+//
+// Args:
+//   - query: The user name or IP address to search for.
+//
+// Returns:
+//   - Blocked: The banned user details.
+//   - bool: True if the banned user is found, otherwise false.
+//   - error: An error if searching for the banned user fails.
 func (g *Group) SearchBannedUser(query string) (banned Blocked, ok bool, err error) {
-	query = strings.TrimSpace(query)
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
 		switch head {
@@ -722,14 +864,20 @@ func (g *Group) SearchBannedUser(query string) (banned Blocked, ok bool, err err
 		return true
 	}
 
+	query = strings.TrimSpace(query)
 	err = g.SyncSend(cb, "searchban", query, "\r\n")
 
 	return
 }
 
 // BanUser bans the user associated with the specified message.
+//
+// Args:
+//   - message: The message containing the user details to ban.
+//
+// Returns:
+//   - error: An error if banning the user fails.
 func (g *Group) BanUser(message *Message) (err error) {
-	// The received frame should be returned to `g.Events`.
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
 		switch head {
@@ -751,8 +899,18 @@ func (g *Group) BanUser(message *Message) (err error) {
 }
 
 // GetUnbanList retrieves a list of unblocked users (unban list) for the group.
-// The `offset` is taken from the earliest time in the previous result or zero `time.Time`.
-// The `amount` corresponds to the desired number of results.
+//
+// The offset can be set to zero time to retrieve the newest result.
+// The next offset can be defined from the last [Unblocked.Time].
+// The returned order is from newer to older.
+//
+// Args:
+//   - offset: The offset time to start retrieving the unban list.
+//   - amount: The number of unbanned users to retrieve.
+//
+// Returns:
+//   - []Unblocked: A list of unblocked users.
+//   - error: An error if retrieving the unban list fails.
 func (g *Group) GetUnbanList(offset time.Time, ammount int) (unbanList []Unblocked, err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
@@ -794,8 +952,13 @@ func (g *Group) GetUnbanList(offset time.Time, ammount int) (unbanList []Unblock
 }
 
 // UnbanUser unblocks the specified blocked user.
+//
+// Args:
+//   - blocked: The blocked user details to unblock.
+//
+// Returns:
+//   - error: An error if unblocking the user fails.
 func (g *Group) UnbanUser(blocked *Blocked) (err error) {
-	// The received frame should be returned to `g.Events`.
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
 		switch head {
@@ -817,13 +980,16 @@ func (g *Group) UnbanUser(blocked *Blocked) (err error) {
 }
 
 // UnbanAll unblocks all blocked users.
-func (g *Group) UnbanAll() (err error) {
-	// The received frame should be returned to `g.Events`.
+//
+// Returns:
+//   - int: The amount of unblocked users.
+//   - error: An error if unblocking all users fails.
+func (g *Group) UnbanAll() (amount int, err error) {
 	cb := func(frame string) bool {
-		head, _, _ := strings.Cut(frame, ":")
+		head, data, _ := strings.Cut(frame, ":")
 		switch head {
 		case "allunblocked":
-			// allunblocked:2 (length of unblocked users)
+			amount, _ = strconv.Atoi(data)
 			g.events <- frame
 			return false
 		default:
@@ -838,7 +1004,15 @@ func (g *Group) UnbanAll() (err error) {
 }
 
 // Login logs in to the group with the provided username and password.
+//
 // If the password is an empty string, it will log in as the named anon instead.
+//
+// Args:
+//   - username: The username to log in with.
+//   - password: The password to log in with. If empty, logs in as an anonymous user.
+//
+// Returns:
+//   - error: An error if the login fails.
 func (g *Group) Login(username, password string) (err error) {
 	cb := func(frame string) bool {
 		head, _, _ := strings.Cut(frame, ":")
@@ -878,6 +1052,9 @@ func (g *Group) Login(username, password string) (err error) {
 }
 
 // Logout logs out from the group.
+//
+// Returns:
+//   - error: An error if the logout fails.
 func (g *Group) Logout() (err error) {
 	cb := func(frame string) bool {
 		head, _, _ := strings.Cut(frame, ":")
@@ -909,6 +1086,10 @@ func (g *Group) Logout() (err error) {
 }
 
 // GetBanWords retrieves the banned word settings for the group.
+//
+// Returns:
+//   - BanWord: The banned word settings for the group.
+//   - error: An error if retrieving the banned word settings fails.
 func (g *Group) GetBanWords() (banWord BanWord, err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
@@ -929,6 +1110,12 @@ func (g *Group) GetBanWords() (banWord BanWord, err error) {
 }
 
 // SetBanWords sets the banned word settings for the group.
+//
+// Args:
+//   - banWord: The banned word settings to set.
+//
+// Returns:
+//   - error: An error if setting the banned word settings fails.
 func (g *Group) SetBanWords(banWord BanWord) (err error) {
 	cb := func(frame string) bool {
 		head, _, _ := strings.Cut(frame, ":")
@@ -947,8 +1134,13 @@ func (g *Group) SetBanWords(banWord BanWord) (err error) {
 }
 
 // Delete deletes the specified message from the group.
+//
+// Args:
+//   - message: The message to delete.
+//
+// Returns:
+//   - error: An error if deleting the message fails.
 func (g *Group) Delete(message *Message) (err error) {
-	// The received frame should be returned to `g.Events`.
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
 		switch head {
@@ -969,8 +1161,13 @@ func (g *Group) Delete(message *Message) (err error) {
 }
 
 // DeleteAll deletes all messages in the group.
+//
+// Args:
+//   - message: The message details to match for deletion.
+//
+// Returns:
+//   - error: An error if deleting all messages fails.
 func (g *Group) DeleteAll(message *Message) (err error) {
-	// The received frame should be returned to `g.Events`.
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
 		switch head {
@@ -993,8 +1190,10 @@ func (g *Group) DeleteAll(message *Message) (err error) {
 }
 
 // ClearAll clears all messages in the group.
+//
+// Returns:
+//   - error: An error if clearing all messages fails.
 func (g *Group) ClearAll() (err error) {
-	// The received frame should be returned to `g.Events`.
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
 		switch head {
@@ -1018,8 +1217,14 @@ func (g *Group) ClearAll() (err error) {
 }
 
 // AddModerator adds a moderator to the group with the specified username and access level.
+//
+// Args:
+//   - username: The username of the new moderator.
+//   - access: The access level to assign to the moderator.
+//
+// Returns:
+//   - error: An error if adding the moderator fails.
 func (g *Group) AddModerator(username string, access int64) (err error) {
-	// The received frame should be returned to `g.Events`.
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
 		switch head {
@@ -1051,8 +1256,14 @@ func (g *Group) AddModerator(username string, access int64) (err error) {
 }
 
 // UpdateModerator updates the access level of the specified moderator.
+//
+// Args:
+//   - username: The name of the moderator to update.
+//   - access: The new access level to set for the moderator.
+//
+// Returns:
+//   - error: An error if the update fails.
 func (g *Group) UpdateModerator(username string, access int64) (err error) {
-	// The received frame should be returned to `g.Events`.
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
 		switch head {
@@ -1084,8 +1295,13 @@ func (g *Group) UpdateModerator(username string, access int64) (err error) {
 }
 
 // RemoveModerator removes the specified moderator from the group.
+//
+// Args:
+//   - username: The name of the moderator to remove.
+//
+// Returns:
+//   - error: An error if the removal fails.
 func (g *Group) RemoveModerator(username string) (err error) {
-	// The received frame should be returned to `g.Events`.
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
 		switch head {
@@ -1117,8 +1333,14 @@ func (g *Group) RemoveModerator(username string) (err error) {
 }
 
 // GetModActions retrieves a list of moderator actions (mod actions) for the group.
-// The `dir` can be either "prev" to go earlier or "next" to go to the latest.
-// The `offset` corresponds to the ID of the earlier-1 or latest+1 `ModAction.ID`.
+//
+// Args:
+//   - dir: The direction to retrieve the mod actions, "prev" for later or "next" for earlier actions.
+//   - offset: The ID offset to retrieve mod actions from [ModAction.ID]. Later ID - 1 for "prev" or earlier ID + 1 for "next".
+//
+// Returns:
+//   - []*ModAction: A list of ModAction objects representing the moderator actions.
+//   - error: An error if retrieving the mod actions fails.
 func (g *Group) GetModActions(dir string, offset int) (modactions []*ModAction, err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
@@ -1138,7 +1360,16 @@ func (g *Group) GetModActions(dir string, offset int) (modactions []*ModAction, 
 }
 
 // GetLastUserMessage retrieves the last message sent by the specified username in the group.
-// This is useful for banning a user by their username.
+//
+// Note:
+//   - This is useful for banning a user by their username.
+//
+// Args:
+//   - username: The username to retrieve the last message for.
+//
+// Returns:
+//   - *Message: The last Message object sent by the specified user.
+//   - bool: A boolean indicating if a message was found.
 func (g *Group) GetLastUserMessage(username string) (msg *Message, ok bool) {
 	cb := func(_ string, v *Message) bool {
 		if strings.EqualFold(v.User.Name, username) {
@@ -1155,11 +1386,18 @@ func (g *Group) GetLastUserMessage(username string) (msg *Message, ok bool) {
 }
 
 // getMoreHistory retrieves additional history messages from the group.
-// It takes an offset and the amount of history messages to fetch as parameters.
-// It returns the count of received messages, a boolean indicating if there are no more messages to fetch,
-// and an error if the operation encounters any issues.
+//
+// The offset starts with 0 from the latest messages, then [nextOffset = prevOffset + amount].
+//
+// Args:
+//   - offset: The offset from which to start retrieving messages.
+//   - amount: The number of history messages to fetch.
+//
+// Returns:
+//   - int: The count of received messages.
+//   - bool: A boolean indicating if there are no more messages to fetch.
+//   - error: An error if the operation encounters any issues.
 func (g *Group) getMoreHistory(offset, amount int) (count int, nomore bool, err error) {
-	// The received "i" frame should be returned to `g.Events`.
 	cb := func(frame string) bool {
 		head, _, _ := strings.Cut(frame, ":")
 		switch head {
@@ -1182,6 +1420,9 @@ func (g *Group) getMoreHistory(offset, amount int) (count int, nomore bool, err 
 }
 
 // ProfileRefresh notifies the server to refresh the profile.
+//
+// Returns:
+//   - error: An error if the operation fails.
 func (g *Group) ProfileRefresh() error {
 	cb := func(frame string) bool {
 		head, _, _ := strings.Cut(frame, ":")
@@ -1199,18 +1440,31 @@ func (g *Group) ProfileRefresh() error {
 }
 
 // PropagateEvent propagates the WebSocket frame back to the listener goroutine.
-// It is utilized when the `g.SyncSend` callback receives unwanted frames.
+//
+// It is utilized when the [Group.SyncSend] callback receives unwanted frames.
+//
+// Args:
+//   - frame: The WebSocket frame to propagate.
 func (g *Group) PropagateEvent(frame string) {
 	g.events <- frame
 }
 
-// GetContext returns the `context.Context` of the group chat.
+// GetContext returns the [context.Context] of the group chat.
+//
+// Returns:
+//   - context.Context: The context of the group chat.
 func (g *Group) GetContext() context.Context {
 	return g.context
 }
 
 // wsOnError handles WebSocket errors that occur during communication.
-func (g *Group) wsOnError(e error) {
+//
+// It attempts to reconnect if the connection is still active.
+// If the reconnection fails, it disconnects and dispatches the [OnGroupLeft] event.
+//
+// Args:
+//   - err: The error that occurred.
+func (g *Group) wsOnError(err error) {
 	close(g.events)
 	close(g.takeOver)
 	if g.Connected {
@@ -1236,6 +1490,9 @@ func (g *Group) wsOnError(e error) {
 }
 
 // wsOnFrame handles incoming WebSocket frames.
+//
+// Args:
+//   - frame: The WebSocket frame to handle.
 func (g *Group) wsOnFrame(frame string) {
 	defer func() {
 		if err := recover(); err != nil {

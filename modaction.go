@@ -82,43 +82,66 @@ type ModAction struct {
 }
 
 // ExtraAsSliceInt returns the Extra field as a slice of int64.
+//
+// Returns:
+//   - []int64: The parsed slice of int64 values.
 func (ma *ModAction) ExtraAsSliceInt() (ret []int64) {
 	json.Unmarshal([]byte(ma.Extra), &ret)
 	return
 }
 
 // ExtraAsInt returns the Extra field as an int64.
+//
+// Returns:
+//   - int64: The parsed int64 value.
 func (ma *ModAction) ExtraAsInt() (ret int64) {
 	json.Unmarshal([]byte(ma.Extra), &ret)
 	return
 }
 
 // ExtraAsBool returns the Extra field as a boolean.
+//
+// Returns:
+//   - bool: The parsed boolean value.
 func (ma *ModAction) ExtraAsBool() (ret bool) {
 	json.Unmarshal([]byte(ma.Extra), &ret)
 	return
 }
 
 // ExtraAsSliceInterface returns the Extra field as a slice of interface{}.
+//
+// Returns:
+//   - []interface{}: The parsed slice of interface{} values.
 func (ma *ModAction) ExtraAsSliceInterface() (ret []interface{}) {
 	json.Unmarshal([]byte(ma.Extra), &ret)
 	return
 }
 
-// ExtraBanWord returns the Extra field as a BanWord.
+// ExtraBanWord returns the Extra field as a [BanWord].
+//
+// Returns:
+//   - BanWord: The parsed BanWord object.
 func (ma *ModAction) ExtraBanWord() (ret BanWord) {
 	json.Unmarshal([]byte(ma.Extra), &ret)
 	return
 }
 
-// ExtraDescription returns the Extra field as a GroupInfo.
+// ExtraDescription returns the Extra field as a [GroupInfo].
+//
+// Returns:
+//   - GroupInfo: The parsed GroupInfo object.
 func (ma *ModAction) ExtraDescription() (ret GroupInfo) {
 	json.Unmarshal([]byte(ma.Extra), &ret)
 	return
 }
 
-// String returns a string representation of the ModAction.
-// TODO: use `strings.Builder` instead.
+// String returns a string representation of the [ModAction].
+//
+// TODO:
+//   - Use [strings.Builder] instead.
+//
+// Returns:
+//   - string: The string representation of the ModAction.
 func (ma *ModAction) String() (actionDesc string) {
 	actionDesc = ModactionTmpl["action_desc_"+ma.Type]
 	switch ma.Type {
@@ -258,7 +281,13 @@ func (ma *ModAction) String() (actionDesc string) {
 	return
 }
 
-// ParseModActions parses a string data and returns a slice of ModAction objects
+// ParseModActions parses a string data and returns a slice of [ModAction] objects
+//
+// Args:
+//   - data: The string containing semicolon-separated entries of mod actions.
+//
+// Returns:
+//   - []*ModAction: A slice of pointers to the parsed ModAction objects.
 func ParseModActions(data string) (modActions []*ModAction) {
 	var (
 		fields []string
