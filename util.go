@@ -245,10 +245,11 @@ func IsDigit(strnum string) bool {
 	return err == nil
 }
 
-// ParseTime parses the provided string representation of time into a time.Time value.
+// ParseTime parses the provided string representation of time into a [time.Time] value.
 //
-// The function parses the string as a floating-point number representing the number of seconds since the Unix epoch.
-// It then converts this value into a time.Time object.
+// The function splits the string into seconds and nanoseconds parts,
+// pads the nanoseconds part with zeros to ensure 6 digits,
+// and then converts the values into int64 before creating a [time.Time] object using [time.Unix].
 //
 // Args:
 //   - strtime: The string representation of time.
@@ -257,10 +258,17 @@ func IsDigit(strnum string) bool {
 //   - time.Time: The parsed time.Time object.
 //   - error: An error if the parsing fails.
 func ParseTime(strtime string) (t time.Time, err error) {
-	var timeF float64
-	if timeF, err = strconv.ParseFloat(strtime, 64); err == nil {
-		t = time.Unix(0, int64(timeF*1e9))
+	sec, nsec, _ := strings.Cut(strtime, ".")
+	nsec = nsec + strings.Repeat("0", 6-len(nsec))
+
+	var secInt, nsecInt int64
+	if secInt, err = strconv.ParseInt(sec, 10, 64); err != nil {
+		return
 	}
+	if nsecInt, err = strconv.ParseInt(nsec, 10, 64); err != nil {
+		return
+	}
+	t = time.Unix(secInt, nsecInt)
 
 	return
 }

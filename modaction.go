@@ -239,21 +239,22 @@ func (ma *ModAction) String() (actionDesc string) {
 		permissions := ma.ExtraAsSliceInt()
 		allowed := []string{}
 		blocked := []string{}
-		var permissionName string
-		var flag, oldFlag, newFlag int64
-		for permissionName, flag = range map[string]int64{
-			"nlp_msg_queue":  32768,
-			"nlp_single_msg": 16384,
-			"nlp_ngram":      2097152,
+		var oldFlag, newFlag int64
+		for _, perms := range []struct {
+			name string
+			flag int64
+		}{
+			{"nlp_msg_queue", 32768},
+			{"nlp_single_msg", 16384},
+			{"nlp_ngram", 2097152},
 		} {
-			oldFlag = flag & permissions[0]
-			newFlag = flag & permissions[1]
+			oldFlag = perms.flag & permissions[0]
+			newFlag = perms.flag & permissions[1]
 			if newFlag != oldFlag {
-				permissionName = ModactionTmpl[permissionName]
 				if newFlag != 0 {
-					allowed = append(allowed, permissionName)
+					allowed = append(allowed, ModactionTmpl[perms.name])
 				} else {
-					blocked = append(blocked, permissionName)
+					blocked = append(blocked, ModactionTmpl[perms.name])
 				}
 			}
 		}

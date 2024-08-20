@@ -36,7 +36,7 @@ func TestParseGroupMessage(t *testing.T) {
 			name: "NamedAnonMessage",
 			data: "1721913578.62::anonName:23361675:moderationID:messageID:userIP:0::<n3512/>asdfghjkl",
 			want: &Message{
-				Time:         time.Unix(1721913578, int64(.62*1e9)),
+				Time:         time.Unix(1721913578, int64(.62*1e6)),
 				UserID:       23361675,
 				ModerationID: "moderationID",
 				ID:           "messageID",
@@ -51,7 +51,7 @@ func TestParseGroupMessage(t *testing.T) {
 			name: "UnnamedAnonMessage",
 			data: "1721913578.62:::23361675:moderationID:messageID:userIP:0::<n3512/>asdfghjkl",
 			want: &Message{
-				Time:         time.Unix(1721913578, int64(.62*1e9)),
+				Time:         time.Unix(1721913578, int64(.62*1e6)),
 				UserID:       23361675,
 				ModerationID: "moderationID",
 				ID:           "messageID",
@@ -85,7 +85,7 @@ func TestParseGroupMessage(t *testing.T) {
 
 func TestParsePrivateMessage(t *testing.T) {
 	private := &Private{
-		LoginName: "testuser",
+		LoginName: "Nekonyan",
 	}
 	tests := []struct {
 		name string
@@ -94,13 +94,13 @@ func TestParsePrivateMessage(t *testing.T) {
 	}{
 		{
 			name: "NormalMessage",
-			data: "testuser:1688488704:12345.6789:0:rawText",
+			data: "clonerxyz:clonerxyz:unknown:1723029464.85:0:<m v=\"1\">text</m>",
 			want: &Message{
-				Time:      time.Unix(1688488704, 0),
-				ID:        "12345",
-				RawText:   "rawText",
-				Text:      "rawText",
-				User:      &User{Name: "testuser"},
+				Time:      time.Unix(1723029464, 850000),
+				ID:        "1723029464",
+				RawText:   "<m v=\"1\">text</m>",
+				Text:      "text",
+				User:      &User{Name: "clonerxyz"},
 				IsPrivate: true,
 			},
 		},

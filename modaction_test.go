@@ -87,29 +87,54 @@ func TestModAction_String(t *testing.T) {
 	assert.Equal(t, expected5, result5, "String() should return the expected string for egrp type")
 }
 
-func TestParseModActions(t *testing.T) {
-	data := "1,emod,user1,127.0.0.1,target1,1688488704,[1,2,3];2,anon,user2,127.0.0.1,target2,1688488704,true"
+func TestParseModActions_UniqueTypes(t *testing.T) {
+	actions := ParseModActions(
+		`6415678,chbw,perorist,127.0.0.1,None,1690621738,{"wholeWords":"","words":""};` +
+			`6413806,emod,clonerxyz,127.0.0.1,metia,1690388088,[1173496,1139656];` +
+			`6405918,prxy,perorist,127.0.0.1,None,1689441854,true;` +
+			`6401364,annc,perorist,127.0.0.1,None,1688925246,[0,60,"%3CnA149A0/%3E%3Cf%20xf9f%3D%22%22%3E3%26nbsp%3Bkata%26nbsp%3Bterserah"];` +
+			`6401361,anon,perorist,127.0.0.1,None,1688925129,true;` +
+			`6397604,cntr,clonerxyz,127.0.0.1,None,1688490165,true;` +
+			`6397598,egrp,clonerxyz,127.0.0.1,None,1688489707,{"ownr_msg":"Heathens%20come%20join","title":"Only%20me"};` +
+			`6397594,cinm,clonerxyz,127.0.0.1,None,1688489415,false;` +
+			`6397590,aopn,None,None,None,1688489386,;` +
+			`6397588,acls,None,None,None,1688489305,;` +
+			`6397582,chsi,clonerxyz,127.0.0.1,None,1688488891,;` +
+			`6397581,hidi,clonerxyz,127.0.0.1,None,1688488881,;` +
+			`6397580,shwi,clonerxyz,127.0.0.1,None,1688488829,;` +
+			`6397579,enlp,clonerxyz,127.0.0.1,None,1688488814,[0,16384];` +
+			`6397574,chrl,clonerxyz,127.0.0.1,None,1688488651,0`,
+	)
+
 	expected := []*ModAction{
-		{
-			ID:     1,
-			Type:   "emod",
-			User:   "user1",
-			IP:     "127.0.0.1",
-			Target: "target1",
-			Time:   time.Date(2023, time.July, 4, 16, 38, 24, 0, time.UTC).Local(),
-			Extra:  "[1,2,3]",
-		},
-		{
-			ID:     2,
-			Type:   "anon",
-			User:   "user2",
-			IP:     "127.0.0.1",
-			Target: "target2",
-			Time:   time.Date(2023, time.July, 4, 16, 38, 24, 0, time.UTC).Local(),
-			Extra:  "true",
-		},
+		{ID: 6415678, Type: "chbw", User: "perorist", IP: "127.0.0.1", Target: "None", Time: time.Unix(1690621738, 0), Extra: `{"wholeWords":"","words":""}`},
+		{ID: 6413806, Type: "emod", User: "clonerxyz", IP: "127.0.0.1", Target: "metia", Time: time.Unix(1690388088, 0), Extra: `[1173496,1139656]`},
+		{ID: 6405918, Type: "prxy", User: "perorist", IP: "127.0.0.1", Target: "None", Time: time.Unix(1689441854, 0), Extra: "true"},
+		{ID: 6401364, Type: "annc", User: "perorist", IP: "127.0.0.1", Target: "None", Time: time.Unix(1688925246, 0), Extra: `[0,60,"%3CnA149A0/%3E%3Cf%20xf9f%3D%22%22%3E3%26nbsp%3Bkata%26nbsp%3Bterserah"]`},
+		{ID: 6401361, Type: "anon", User: "perorist", IP: "127.0.0.1", Target: "None", Time: time.Unix(1688925129, 0), Extra: "true"},
+		{ID: 6397604, Type: "cntr", User: "clonerxyz", IP: "127.0.0.1", Target: "None", Time: time.Unix(1688490165, 0), Extra: "true"},
+		{ID: 6397598, Type: "egrp", User: "clonerxyz", IP: "127.0.0.1", Target: "None", Time: time.Unix(1688489707, 0), Extra: `{"ownr_msg":"Heathens%20come%20join","title":"Only%20me"}`},
+		{ID: 6397594, Type: "cinm", User: "clonerxyz", IP: "127.0.0.1", Target: "None", Time: time.Unix(1688489415, 0), Extra: "false"},
+		{ID: 6397590, Type: "aopn", User: "None", IP: "None", Target: "None", Time: time.Unix(1688489386, 0), Extra: ""},
+		{ID: 6397588, Type: "acls", User: "None", IP: "None", Target: "None", Time: time.Unix(1688489305, 0), Extra: ""},
+		{ID: 6397582, Type: "chsi", User: "clonerxyz", IP: "127.0.0.1", Target: "None", Time: time.Unix(1688488891, 0), Extra: ""},
+		{ID: 6397581, Type: "hidi", User: "clonerxyz", IP: "127.0.0.1", Target: "None", Time: time.Unix(1688488881, 0), Extra: ""},
+		{ID: 6397580, Type: "shwi", User: "clonerxyz", IP: "127.0.0.1", Target: "None", Time: time.Unix(1688488829, 0), Extra: ""},
+		{ID: 6397579, Type: "enlp", User: "clonerxyz", IP: "127.0.0.1", Target: "None", Time: time.Unix(1688488814, 0), Extra: `[0,16384]`},
+		{ID: 6397574, Type: "chrl", User: "clonerxyz", IP: "127.0.0.1", Target: "None", Time: time.Unix(1688488651, 0), Extra: "0"},
 	}
-	result := ParseModActions(data)
-	assert.Equal(t, *expected[0], *result[0], "ParseModActions() should return the expected ModAction slice")
-	assert.Equal(t, *expected[1], *result[1], "ParseModActions() should return the expected ModAction slice")
+
+	if len(actions) != len(expected) {
+		t.Fatalf("Expected %d actions, but got %d", len(expected), len(actions))
+	}
+
+	for i, action := range actions {
+		if *action != *expected[i] {
+			t.Errorf("ModAction %d mismatch. Expected %+v, but got %+v", i, *expected[i], *action)
+		}
+
+		if action.String() != expected[i].String() {
+			t.Errorf("String() %d mismatch. Expected %+v, but got %+v", i, expected[i].String(), action.String())
+		}
+	}
 }
