@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+
+	"github.com/rs/zerolog/log"
 )
 
 // Application represents the main application.
@@ -15,16 +17,16 @@ import (
 // connecting to groups and private messages, and handling events and errors.
 // The application also manages data persistence and provides access to the public and private APIs.
 type Application struct {
-	Config        *Config                    // Config holds the configuration for the pplication.
-	persistence   Persistence                // Persistence manages data persistence for the application.
-	Private       Private                    // Private represents the private chat functionality of the application.
-	Groups        SyncMap[string, *Group]    // Groups stores the groups the application is connected to.
-	eventHandlers SyncMap[Handler, struct{}] // eventHandlers contains the registered event handlers for the application.
-	errorHandlers SyncMap[Handler, struct{}] // errorHandlers contains the registered error handlers for the application.
-	interruptChan chan os.Signal             // interruptChan receives interrupt signals to gracefully stop the application.
-	context       context.Context            // Context for running the application.
-	cancelCtx     context.CancelFunc         // Function for stopping the application.
-	initialized   bool                       // initialized indicates whether the application has been initialized.
+	Config        *Config                 // Config holds the configuration for the pplication.
+	persistence   Persistence             // Persistence manages data persistence for the application.
+	Private       Private                 // Private represents the private chat functionality of the application.
+	Groups        SyncMap[string, *Group] // Groups stores the groups the application is connected to.
+	eventHandlers []Handler               // eventHandlers contains the registered event handlers for the application.
+	errorHandlers []Handler               // errorHandlers contains the registered error handlers for the application.
+	interruptChan chan os.Signal          // interruptChan receives interrupt signals to gracefully stop the application.
+	context       context.Context         // Context for running the application.
+	cancelCtx     context.CancelFunc      // Function for stopping the application.
+	initialized   bool                    // initialized indicates whether the application has been initialized.
 }
 
 // AddHandler adds a new handler to the application.
@@ -39,7 +41,7 @@ func (app *Application) AddHandler(handler Handler) *Application {
 		ch.app = app
 	}
 
-	app.eventHandlers.Set(handler, struct{}{})
+	app.eventHandlers = append(app.eventHandlers, handler)
 
 	return app
 }
@@ -52,7 +54,7 @@ func (app *Application) AddHandler(handler Handler) *Application {
 // Returns:
 //   - *Application: The application instance for method chaining.
 func (app *Application) RemoveHandler(handler Handler) *Application {
-	app.eventHandlers.Del(handler)
+	app.eventHandlers = Remove(app.eventHandlers, handler)
 
 	return app
 }
@@ -69,7 +71,7 @@ func (app *Application) AddErrorHandler(handler Handler) *Application {
 		ch.app = app
 	}
 
-	app.errorHandlers.Set(handler, struct{}{})
+	app.errorHandlers = append(app.errorHandlers, handler)
 
 	return app
 }
@@ -82,7 +84,7 @@ func (app *Application) AddErrorHandler(handler Handler) *Application {
 // Returns:
 //   - *Application: The application instance for method chaining.
 func (app *Application) RemoveErrorHandler(handler Handler) *Application {
-	app.errorHandlers.Del(handler)
+	app.errorHandlers = Remove(app.errorHandlers, handler)
 
 	return app
 }
@@ -107,7 +109,7 @@ func (app *Application) UsePersistence(persistence Persistence) *Application {
 func (app *Application) dispatchEvent(event *Event) {
 	var context *Context
 
-	callback := func(handler Handler, _ struct{}) bool {
+	for _, handler := range app.eventHandlers {
 		if handler.Check(event) {
 			if context == nil {
 				context = &Context{
@@ -124,22 +126,56 @@ func (app *Application) dispatchEvent(event *Event) {
 
 			func() {
 				defer func() {
-					if err := recover(); err != nil && event.Type != OnError {
-						event.Type = OnError
+					if err := recover(); err != nil {
 						event.Error = err
 
-						app.dispatchEvent(event)
+						app.dispatchError(event)
 					}
 				}()
 
 				handler.Invoke(event, context)
 			}()
 		}
-
-		return true
 	}
+}
 
-	app.eventHandlers.Range(callback)
+// dispatchError dispatches an error event to the error handlers.
+//
+// Args:
+//   - event: The event to dispatch.
+func (app *Application) dispatchError(event *Event) {
+	var context *Context
+
+	for _, handler := range app.errorHandlers {
+		if handler.Check(event) {
+			if context == nil {
+				context = &Context{
+					App:     app,
+					BotData: app.persistence.GetBotData(),
+				}
+
+				if event.IsPrivate && event.User != nil && !event.User.IsAnon {
+					context.ChatData = app.persistence.GetChatData(strings.ToLower(event.User.Name))
+				} else if event.Group != nil {
+					context.ChatData = app.persistence.GetChatData(event.Group.Name)
+				}
+			}
+
+			func() {
+				defer func() {
+					if err := recover(); err != nil {
+						log.Error().
+							Str("Event", event.Type.String()).
+							AnErr("Origin", event.Error.(error)).
+							AnErr("Current", err.(error)).
+							Msg("Another error occured during handling an error.")
+					}
+				}()
+
+				handler.Invoke(event, context)
+			}()
+		}
+	}
 }
 
 // Initialize initializes the application.
@@ -154,8 +190,8 @@ func (app *Application) Initialize() *Application {
 	app.persistence.Initialize()
 
 	app.Groups = NewSyncMap[string, *Group]()
-	app.eventHandlers = NewSyncMap[Handler, struct{}]()
-	app.errorHandlers = NewSyncMap[Handler, struct{}]()
+	app.eventHandlers = []Handler{}
+	app.errorHandlers = []Handler{}
 	app.checkConfig()
 	app.initialized = true
 
