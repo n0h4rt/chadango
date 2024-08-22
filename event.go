@@ -84,6 +84,88 @@ const (
 	OnUpdateUserProfile
 )
 
+// String returns a string of said EventType.
+func (e EventType) String() string {
+	switch e {
+	case OnStart:
+		return "OnStart"
+	case OnStop:
+		return "OnStop"
+	case OnError:
+		return "OnError"
+	case OnGroupJoined:
+		return "OnGroupJoined"
+	case OnGroupLeft:
+		return "OnGroupLeft"
+	case OnGroupReconnected:
+		return "OnGroupReconnected"
+	case OnJoin:
+		return "OnJoin"
+	case OnLogin:
+		return "OnLogin"
+	case OnLogout:
+		return "OnLogout"
+	case OnLeave:
+		return "OnLeave"
+	case OnParticipantCountChange:
+		return "OnParticipantCountChange"
+	case OnMessage:
+		return "OnMessage"
+	case OnMessageDelete:
+		return "OnMessageDelete"
+	case OnMessageHistory:
+		return "OnMessageHistory"
+	case OnMessageUpdate:
+		return "OnMessageUpdate"
+	case OnAnnouncement:
+		return "OnAnnouncement"
+	case OnUpdateGroupInfo:
+		return "OnUpdateGroupInfo"
+	case OnFlagUpdate:
+		return "OnFlagUpdate"
+	case OnModeratorAdded:
+		return "OnModeratorAdded"
+	case OnModeratorUpdated:
+		return "OnModeratorUpdated"
+	case OnModeratorRemoved:
+		return "OnModeratorRemoved"
+	case OnClearAll:
+		return "OnClearAll"
+	case OnUserBanned:
+		return "OnUserBanned"
+	case OnUserUnbanned:
+		return "OnUserUnbanned"
+	case OnAllUserUnbanned:
+		return "OnAllUserUnbanned"
+	case OnPrivateConnected:
+		return "OnPrivateConnected"
+	case OnPrivateDisconnected:
+		return "OnPrivateDisconnected"
+	case OnPrivateReconnected:
+		return "OnPrivateReconnected"
+	case OnPrivateKickedOff:
+		return "OnPrivateKickedOff"
+	case OnPrivateMessage:
+		return "OnPrivateMessage"
+	case OnPrivateOfflineMessage:
+		return "OnPrivateOfflineMessage"
+	case OnPrivateFriendOnline:
+		return "OnPrivateFriendOnline"
+	case OnPrivateFriendOnlineApp:
+		return "OnPrivateFriendOnlineApp"
+	case OnPrivateFriendOffline:
+		return "OnPrivateFriendOffline"
+	case OnPrivateFriendActive:
+		return "OnPrivateFriendActive"
+	case OnPrivateFriendIdle:
+		return "OnPrivateFriendIdle"
+	case OnUpdateUserProfile:
+		return "OnUpdateUserProfile"
+	default:
+		return "UnknownEvent"
+	}
+}
+
 // Event represents an event that can occur in the application.
 type Event struct {
 	Type             EventType    // The type of the event.

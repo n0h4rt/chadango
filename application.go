@@ -7,11 +7,17 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+
+	"github.com/rs/zerolog/log"
 )
 
 // Application represents the main application.
+//
+// It provides methods for managing the application's lifecycle, including initialization, starting, stopping,
+// connecting to groups and private messages, and handling events and errors.
+// The application also manages data persistence and provides access to the public and private APIs.
 type Application struct {
-	Config        *Config                 // Config holds the configuration for the application.
+	Config        *Config                 // Config holds the configuration for the pplication.
 	persistence   Persistence             // Persistence manages data persistence for the application.
 	Private       Private                 // Private represents the private chat functionality of the application.
 	Groups        SyncMap[string, *Group] // Groups stores the groups the application is connected to.
@@ -24,7 +30,12 @@ type Application struct {
 }
 
 // AddHandler adds a new handler to the application.
-// It returns the `*Application` to allow for nesting.
+//
+// Args:
+//   - handler: The handler to add to the application.
+//
+// Returns:
+//   - *Application: The application instance for method chaining.
 func (app *Application) AddHandler(handler Handler) *Application {
 	if ch, ok := handler.(*CommandHandler); ok {
 		ch.app = app
@@ -36,20 +47,25 @@ func (app *Application) AddHandler(handler Handler) *Application {
 }
 
 // RemoveHandler removes a handler from the application.
+//
+// Args:
+//   - handler: The handler to remove from the application.
+//
+// Returns:
+//   - *Application: The application instance for method chaining.
 func (app *Application) RemoveHandler(handler Handler) *Application {
-	// Find and remove the handler from the collection
-	for i, h := range app.eventHandlers {
-		if h == handler {
-			app.eventHandlers = append(app.eventHandlers[:i], app.eventHandlers[i+1:]...)
-			break
-		}
-	}
+	app.eventHandlers = Remove(app.eventHandlers, handler)
 
 	return app
 }
 
-// AddHandler adds a new handler to the application.
-// It returns the `*Application` to allow for nesting.
+// AddErrorHandler adds a new error handler to the application.
+//
+// Args:
+//   - handler: The error handler to add to the application.
+//
+// Returns:
+//   - *Application: The application instance for method chaining.
 func (app *Application) AddErrorHandler(handler Handler) *Application {
 	if ch, ok := handler.(*CommandHandler); ok {
 		ch.app = app
@@ -60,20 +76,26 @@ func (app *Application) AddErrorHandler(handler Handler) *Application {
 	return app
 }
 
-// RemoveHandler removes a handler from the application.
+// RemoveErrorHandler removes an error handler from the application.
+//
+// Args:
+//   - handler: The error handler to remove from the application.
+//
+// Returns:
+//   - *Application: The application instance for method chaining.
 func (app *Application) RemoveErrorHandler(handler Handler) *Application {
-	// Find and remove the handler from the collection
-	for i, h := range app.errorHandlers {
-		if h == handler {
-			app.errorHandlers = append(app.errorHandlers[:i], app.errorHandlers[i+1:]...)
-			break
-		}
-	}
+	app.errorHandlers = Remove(app.errorHandlers, handler)
 
 	return app
 }
 
-// UsePersistence enables the persistence.
+// UsePersistence enables the persistence layer for the application.
+//
+// Args:
+//   - persistence: The persistence layer to use for the application.
+//
+// Returns:
+//   - *Application: The application instance for method chaining.
 func (app *Application) UsePersistence(persistence Persistence) *Application {
 	app.persistence = persistence
 
@@ -81,6 +103,9 @@ func (app *Application) UsePersistence(persistence Persistence) *Application {
 }
 
 // dispatchEvent dispatches an event to the appropriate handler.
+//
+// Args:
+//   - event: The event to dispatch.
 func (app *Application) dispatchEvent(event *Event) {
 	var context *Context
 
@@ -101,11 +126,49 @@ func (app *Application) dispatchEvent(event *Event) {
 
 			func() {
 				defer func() {
-					if err := recover(); err != nil && event.Type != OnError {
-						event.Type = OnError
+					if err := recover(); err != nil {
 						event.Error = err
 
-						app.dispatchEvent(event)
+						app.dispatchError(event)
+					}
+				}()
+
+				handler.Invoke(event, context)
+			}()
+		}
+	}
+}
+
+// dispatchError dispatches an error event to the error handlers.
+//
+// Args:
+//   - event: The event to dispatch.
+func (app *Application) dispatchError(event *Event) {
+	var context *Context
+
+	for _, handler := range app.errorHandlers {
+		if handler.Check(event) {
+			if context == nil {
+				context = &Context{
+					App:     app,
+					BotData: app.persistence.GetBotData(),
+				}
+
+				if event.IsPrivate && event.User != nil && !event.User.IsAnon {
+					context.ChatData = app.persistence.GetChatData(strings.ToLower(event.User.Name))
+				} else if event.Group != nil {
+					context.ChatData = app.persistence.GetChatData(event.Group.Name)
+				}
+			}
+
+			func() {
+				defer func() {
+					if err := recover(); err != nil {
+						log.Error().
+							Str("Event", event.Type.String()).
+							AnErr("Origin", event.Error.(error)).
+							AnErr("Current", err.(error)).
+							Msg("Another error occured during handling an error.")
 					}
 				}()
 
@@ -116,6 +179,9 @@ func (app *Application) dispatchEvent(event *Event) {
 }
 
 // Initialize initializes the application.
+//
+// Returns:
+//   - *Application: The application instance for method chaining.
 func (app *Application) Initialize() *Application {
 	if app.persistence == nil {
 		// Using the GobPersistence without Filename as a dummy.
@@ -124,6 +190,8 @@ func (app *Application) Initialize() *Application {
 	app.persistence.Initialize()
 
 	app.Groups = NewSyncMap[string, *Group]()
+	app.eventHandlers = []Handler{}
+	app.errorHandlers = []Handler{}
 	app.checkConfig()
 	app.initialized = true
 
@@ -150,6 +218,12 @@ func (app *Application) checkConfig() {
 }
 
 // Start starts the application.
+//
+// Args:
+//   - ctx: The context for running the application.
+//
+// Returns:
+//   - *Application: The application instance for method chaining.
 func (app *Application) Start(ctx context.Context) *Application {
 	if !app.initialized {
 		panic("the application is not initialized")
@@ -216,6 +290,12 @@ func (app *Application) Stop() {
 }
 
 // JoinGroup joins a group in the application.
+//
+// Args:
+//   - groupName: The name of the group to join.
+//
+// Returns:
+//   - error: An error if the group cannot be joined.
 func (app *Application) JoinGroup(groupName string) error {
 	groupName = strings.ToLower(groupName)
 	if _, ok := app.Groups.Get(groupName); ok {
@@ -248,10 +328,16 @@ func (app *Application) JoinGroup(groupName string) error {
 }
 
 // LeaveGroup leaves a group in the application.
+//
+// Args:
+//   - groupName: The name of the group to leave.
+//
+// Returns:
+//   - error: An error if the group cannot be left.
 func (app *Application) LeaveGroup(groupName string) error {
 	groupName = strings.ToLower(groupName)
 	if group, ok := app.Groups.Get(groupName); ok {
-		// app.Groups.Del(groupName) // Group deletion is handled by the `Group.wsOnError`.
+		// app.Groups.Del(groupName) // Group deletion is handled by the [Group.wsOnError].
 		group.Disconnect()
 		return nil
 	}
@@ -260,6 +346,9 @@ func (app *Application) LeaveGroup(groupName string) error {
 }
 
 // ConnectPM connects to private messages.
+//
+// Returns:
+//   - error: An error if the connection to private messages fails.
 func (app *Application) ConnectPM() error {
 	app.Private.App = app
 	app.Private.Name = "Private"
@@ -278,22 +367,37 @@ func (app *Application) DisconnectPM() {
 	app.Private.Disconnect()
 }
 
-// GetContext returns the `context.Context` of the application.
+// GetContext returns the [context.Context] of the application.
+//
+// Returns:
+//   - context.Context: The context of the application.
 func (app *Application) GetContext() context.Context {
 	return app.context
 }
 
-// PrivateAPI returns the `PrivateAPI` used in the application.
+// PrivateAPI returns the [PrivateAPI] used in the application.
+//
+// Returns:
+//   - *PrivateAPI: The private API used in the application.
 func (app *Application) PrivateAPI() *PrivateAPI {
 	return privateAPI
 }
 
-// PublicAPI returns the `PublicAPI` used in the application.
+// PublicAPI returns the [PublicAPI] used in the application.
+//
+// Returns:
+//   - *PublicAPI: The public API used in the application.
 func (app *Application) PublicAPI() *PublicAPI {
 	return publicAPI
 }
 
-// New creates a new instance of the Application with the provided configuration.
+// New creates a new instance of the [Application] with the provided configuration.
+//
+// Args:
+//   - config: The configuration for the application.
+//
+// Returns:
+//   - *Application: A new instance of the [Application].
 func New(config *Config) *Application {
 	return &Application{Config: config}
 }

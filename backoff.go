@@ -11,7 +11,7 @@ type Backoff struct {
 	Duration    time.Duration      // Duration represents the current backoff duration.
 	MaxDuration time.Duration      // MaxDuration is the maximum allowed backoff duration.
 	context     context.Context    // context is the context used for cancellation.
-	cancelCtx   context.CancelFunc // cancel is the function to cancel the `Backoff.Sleep()` operation.
+	cancelCtx   context.CancelFunc // cancel is the function to cancel the [Backoff.Sleep] operation.
 }
 
 // increment increases the backoff duration using an exponential strategy
@@ -26,9 +26,14 @@ func (b *Backoff) increment() {
 	}
 }
 
-// Sleep is a mock of time.Sleep(), that is also responsive to the cancel signal.
+// Sleep is a mock of [time.Sleep], that is also responsive to the cancel signal.
 // It adds some jitter to the context and waits until the context is done.
-// Returns true if the sleep was cancelled before the deadline, false otherwise.
+//
+// Args:
+//   - ctx: The context used for cancellation.
+//
+// Returns:
+//   - bool: True if the sleep was cancelled before the deadline, false otherwise.
 func (b *Backoff) Sleep(ctx context.Context) bool {
 	defer b.increment()
 

@@ -22,6 +22,12 @@ type WebSocket struct {
 }
 
 // Connect establishes a WebSocket connection to the specified URL.
+//
+// Args:
+//   - url: The WebSocket server URL.
+//
+// Returns:
+//   - error: An error if the connection fails.
 func (w *WebSocket) Connect(url string) (err error) {
 	if w.Connected {
 		return
@@ -50,6 +56,9 @@ func (w *WebSocket) Close() {
 }
 
 // Sustain starts pumping events and keeps the WebSocket connection alive.
+//
+// Args:
+//   - ctx: The context used for managing the WebSocket connection's lifecycle.
 func (w *WebSocket) Sustain(ctx context.Context) {
 	w.context, w.cancelCtx = context.WithCancel(ctx)
 	go w.pumpEvent()
@@ -97,6 +106,12 @@ func (w *WebSocket) keepAlive() {
 }
 
 // Send sends a message over the WebSocket connection.
+//
+// Args:
+//   - msg: The message to send.
+//
+// Returns:
+//   - error: An error if the sending fails.
 func (w *WebSocket) Send(msg string) (err error) {
 	if w.Connected {
 		err = websocket.Message.Send(w.client, msg)
@@ -107,6 +122,10 @@ func (w *WebSocket) Send(msg string) (err error) {
 }
 
 // Recv receives a message from the WebSocket connection.
+//
+// Returns:
+//   - string: The received message.
+//   - error: An error if the receiving fails.
 func (w *WebSocket) Recv() (msg string, err error) {
 	if w.Connected {
 		err = websocket.Message.Receive(w.client, &msg)
