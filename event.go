@@ -1,5 +1,7 @@
 package chadango
 
+import "github.com/n0h4rt/chadango/models"
+
 // EventType represents the type of an event.
 type EventType int64
 
@@ -168,23 +170,23 @@ func (e EventType) String() string {
 
 // Event represents an event that can occur in the application.
 type Event struct {
-	Type             EventType    // The type of the event.
-	IsPrivate        bool         // Indicates if the event is related to a private chat.
-	Private          *Private     // The private chat associated with the event.
-	Group            *Group       // The group associated with the event.
-	User             *User        // The user associated with the event.
-	Message          *Message     // The message associated with the event.
-	Command          string       // The command associated with the event.
-	WithArgument     bool         // Indicates if the command has an argument.
-	Argument         string       // The argument associated with the command.
-	Arguments        []string     // The arguments associated with the command.
-	Participant      *Participant // The participant associated with the event.
-	FlagAdded        int64        // The flags added in the event.
-	FlagRemoved      int64        // The flags removed in the event.
-	Blocked          *Blocked     // The blocked user associated with the event.
-	Unblocked        *Unblocked   // The unblocked user associated with the event.
-	GroupInfo        *GroupInfo   // The group information associated with the event.
-	ModGrantedAccess int64        // The granted moderator access level associated with the event.
-	ModRevokedAccess int64        // The revoked moderator access level associated with the event.
-	Error            any          // The error associated with the event.
+	Type             EventType           // The type of the event.
+	IsPrivate        bool                // Indicates if the event is related to a private chat.
+	Private          *Private            // The private chat associated with the event.
+	Group            *Group              // The group associated with the event.
+	User             *models.User        // The user associated with the event.
+	Message          *Message            // The message associated with the event.
+	Command          string              // The command associated with the event.
+	WithArgument     bool                // Indicates if the command has an argument.
+	Argument         string              // The argument associated with the command.
+	Arguments        []string            // The arguments associated with the command.
+	Participant      *models.Participant // The participant associated with the event.
+	FlagAdded        int64               // The flags added in the event.
+	FlagRemoved      int64               // The flags removed in the event.
+	Blocked          *models.Blocked     // The blocked user associated with the event.
+	Unblocked        *models.Unblocked   // The unblocked user associated with the event.
+	GroupInfo        *models.GroupInfo   // The group information associated with the event.
+	ModGrantedAccess int64               // The granted moderator access level associated with the event.
+	ModRevokedAccess int64               // The revoked moderator access level associated with the event.
+	Error            any                 // The error associated with the event.
 }

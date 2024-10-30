@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/n0h4rt/chadango/models"
+	"github.com/n0h4rt/chadango/utils"
 	"github.com/rs/zerolog/log"
 )
 
@@ -56,10 +58,10 @@ type Group struct {
 	TempMessages   SyncMap[string, *Message]        // Map of temporary messages in the group.
 	TempMessageIds SyncMap[string, string]          // Map of temporary message IDs in the group.
 
-	Participants     SyncMap[string, *Participant] // Map of participants in the group. Invoke [Group.GetParticipantsStart] to initiate the participant feeds.
-	ParticipantCount int64                         // The total count of participants in the group.
-	UserCount        int                           // The count of registered users in the group.
-	AnonCount        int                           // The count of anonymous users in the group.
+	Participants     SyncMap[string, *models.Participant] // Map of participants in the group. Invoke [Group.GetParticipantsStart] to initiate the participant feeds.
+	ParticipantCount int64                                // The total count of participants in the group.
+	UserCount        int                                  // The count of registered users in the group.
+	AnonCount        int                                  // The count of anonymous users in the group.
 }
 
 func (g *Group) initFields() {
@@ -67,7 +69,7 @@ func (g *Group) initFields() {
 	g.Messages = NewOrderedSyncMap[string, *Message]()
 	g.TempMessages = NewSyncMap[string, *Message]()
 	g.TempMessageIds = NewSyncMap[string, string]()
-	g.Participants = NewSyncMap[string, *Participant]()
+	g.Participants = NewSyncMap[string, *models.Participant]()
 }
 
 // Connect establishes a connection to the server.
@@ -455,7 +457,7 @@ func (g *Group) SendMessage(text string, a ...any) (msg *Message, err error) {
 			g.AnonName = "anon0001"
 		}
 		// Same as above, the anonymous seed should not be recalculated for each message sending.
-		text = fmt.Sprintf(`<n%d/>%s`, CreateAnonSeed(g.AnonName, g.UserID), text)
+		text = fmt.Sprintf(`<n%d/>%s`, utils.CreateAnonSeed(g.AnonName, g.UserID), text)
 	}
 
 	// Replacing newlines with the `<br/>` tag.
@@ -482,7 +484,7 @@ func (g *Group) SendMessage(text string, a ...any) (msg *Message, err error) {
 //   - error: An error if sending the message in chunks fails.
 func (g *Group) SendMessageChunked(text string, chunkSize int) (msgs []*Message, err error) {
 	var msg *Message
-	for _, chunk := range SplitTextIntoChunks(text, chunkSize) {
+	for _, chunk := range utils.SplitTextIntoChunks(text, chunkSize) {
 		if msg, err = g.SendMessage(chunk); err != nil {
 			return
 		}
@@ -510,7 +512,7 @@ func (g *Group) IsRestricted() bool {
 // Returns:
 //   - *SyncMap[string, *Participant]: The current participants.
 //   - error: An error if fetching the participants fails.
-func (g *Group) GetParticipantsStart() (p *SyncMap[string, *Participant], err error) {
+func (g *Group) GetParticipantsStart() (p *SyncMap[string, *models.Participant], err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
 		switch head {
@@ -520,22 +522,22 @@ func (g *Group) GetParticipantsStart() (p *SyncMap[string, *Participant], err er
 			g.AnonCount, _ = strconv.Atoi(anoncount)
 
 			var fields []string
-			var user *User
+			var user *models.User
 			var t time.Time
-			var participant *Participant
+			var participant *models.Participant
 			for _, entry := range strings.Split(entries, ";") {
 				fields = strings.SplitN(entry, ":", 6)
-				t, _ = ParseTime(fields[1])
+				t, _ = utils.ParseTime(fields[1])
 				userID, _ := strconv.Atoi(fields[2])
 				if fields[3] != "None" {
-					user = &User{Name: fields[3]}
+					user = &models.User{Name: fields[3]}
 				} else if fields[4] != "None" {
-					user = &User{Name: fields[4], IsAnon: true}
+					user = &models.User{Name: fields[4], IsAnon: true}
 				} else {
-					user = &User{Name: GetAnonName(int(t.Unix()), userID), IsAnon: true}
+					user = &models.User{Name: utils.GetAnonName(int(t.Unix()), userID), IsAnon: true}
 				}
 				user.IsSelf = userID == g.UserID && user.Name == g.LoginName
-				participant = &Participant{
+				participant = &models.Participant{
 					ParticipantID: fields[0],
 					UserID:        userID,
 					User:          user,
@@ -659,7 +661,7 @@ func (g *Group) GetAnnouncement() (annc string, enabled bool, interval time.Dura
 // Returns:
 //   - error: An error if setting the announcement fails.
 func (g *Group) SetAnnouncement(annc string, enable bool, interval time.Duration) error {
-	return g.Send("updateannouncement", BoolZeroOrOne(enable), fmt.Sprintf("%.0f", interval.Seconds()), "\r\n")
+	return g.Send("updateannouncement", utils.BoolZeroOrOne(enable), fmt.Sprintf("%.0f", interval.Seconds()), "\r\n")
 }
 
 // UpdateGroupFlag updates the group's flag by adding and removing specific flags.
@@ -710,7 +712,7 @@ func (g *Group) GetPremiumInfo() (flag int, expire time.Time, err error) {
 		case "premium":
 			fl, ti, _ := strings.Cut(data, ":")
 			flag, _ = strconv.Atoi(fl)
-			expire, _ = ParseTime(ti)
+			expire, _ = utils.ParseTime(ti)
 			g.PremiumExpireAt = expire
 			return false
 		default:
@@ -744,7 +746,7 @@ func (g *Group) SetBackground(enable bool) (err error) {
 		}
 	}
 
-	return g.Send("msgbg", BoolZeroOrOne(enable), "\r\n")
+	return g.Send("msgbg", utils.BoolZeroOrOne(enable), "\r\n")
 }
 
 // SetMedia sets the media status of the group.
@@ -767,7 +769,7 @@ func (g *Group) SetMedia(enable bool) (err error) {
 		}
 	}
 
-	return g.Send("msgmedia", BoolZeroOrOne(enable), "\r\n")
+	return g.Send("msgmedia", utils.BoolZeroOrOne(enable), "\r\n")
 }
 
 // GetBanList retrieves a list of blocked users (ban list) for the group.
@@ -783,7 +785,7 @@ func (g *Group) SetMedia(enable bool) (err error) {
 // Returns:
 //   - []Blocked: A list of blocked users.
 //   - error: An error if retrieving the ban list fails.
-func (g *Group) GetBanList(offset time.Time, ammount int) (banList []Blocked, err error) {
+func (g *Group) GetBanList(offset time.Time, ammount int) (banList []models.Blocked, err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
 		switch head {
@@ -791,15 +793,15 @@ func (g *Group) GetBanList(offset time.Time, ammount int) (banList []Blocked, er
 			var fields []string
 			var target string
 			var t time.Time
-			var banned Blocked
+			var banned models.Blocked
 			for _, entry := range strings.Split(data, ";") {
 				fields = strings.SplitN(entry, ":", 5)
 				target = fields[2]
 				if target == "" {
 					target = "anon"
 				}
-				t, _ = ParseTime(fields[3])
-				banned = Blocked{
+				t, _ = utils.ParseTime(fields[3])
+				banned = models.Blocked{
 					IP:           fields[1],
 					ModerationID: fields[0],
 					Target:       target,
@@ -834,7 +836,7 @@ func (g *Group) GetBanList(offset time.Time, ammount int) (banList []Blocked, er
 //   - Blocked: The banned user details.
 //   - bool: True if the banned user is found, otherwise false.
 //   - error: An error if searching for the banned user fails.
-func (g *Group) SearchBannedUser(query string) (banned Blocked, ok bool, err error) {
+func (g *Group) SearchBannedUser(query string) (banned models.Blocked, ok bool, err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
 		switch head {
@@ -846,7 +848,7 @@ func (g *Group) SearchBannedUser(query string) (banned Blocked, ok bool, err err
 			}
 			// It would be nicer to use a constant rather than a naked string.
 			t, _ := time.Parse("2006-01-02 15:04:05", fields[5])
-			banned = Blocked{
+			banned = models.Blocked{
 				IP:           fields[2],
 				ModerationID: fields[3],
 				Target:       target,
@@ -911,7 +913,7 @@ func (g *Group) BanUser(message *Message) (err error) {
 // Returns:
 //   - []Unblocked: A list of unblocked users.
 //   - error: An error if retrieving the unban list fails.
-func (g *Group) GetUnbanList(offset time.Time, ammount int) (unbanList []Unblocked, err error) {
+func (g *Group) GetUnbanList(offset time.Time, ammount int) (unbanList []models.Unblocked, err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
 		switch head {
@@ -919,15 +921,15 @@ func (g *Group) GetUnbanList(offset time.Time, ammount int) (unbanList []Unblock
 			var fields []string
 			var target string
 			var t time.Time
-			var unbanned Unblocked
+			var unbanned models.Unblocked
 			for _, entry := range strings.Split(data, ";") {
 				fields = strings.SplitN(entry, ":", 5)
 				target = fields[2]
 				if target == "" {
 					target = "anon"
 				}
-				t, _ = ParseTime(fields[3])
-				unbanned = Unblocked{
+				t, _ = utils.ParseTime(fields[3])
+				unbanned = models.Unblocked{
 					IP:           fields[1],
 					ModerationID: fields[0],
 					Target:       target,
@@ -958,7 +960,7 @@ func (g *Group) GetUnbanList(offset time.Time, ammount int) (unbanList []Unblock
 //
 // Returns:
 //   - error: An error if unblocking the user fails.
-func (g *Group) UnbanUser(blocked *Blocked) (err error) {
+func (g *Group) UnbanUser(blocked *models.Blocked) (err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
 		switch head {
@@ -1071,7 +1073,7 @@ func (g *Group) Logout() (err error) {
 				}()
 			}
 
-			g.LoginName = GetAnonName(int(g.LoginTime.Unix()), g.UserID)
+			g.LoginName = utils.GetAnonName(int(g.LoginTime.Unix()), g.UserID)
 			g.LoggedIn = false
 			return false
 		default:
@@ -1090,13 +1092,13 @@ func (g *Group) Logout() (err error) {
 // Returns:
 //   - BanWord: The banned word settings for the group.
 //   - error: An error if retrieving the banned word settings fails.
-func (g *Group) GetBanWords() (banWord BanWord, err error) {
+func (g *Group) GetBanWords() (banWord models.BanWord, err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
 		switch head {
 		case "bw":
 			partial, exact, _ := strings.Cut(data, ":")
-			banWord = BanWord{WholeWords: exact, Words: partial}
+			banWord = models.BanWord{WholeWords: exact, Words: partial}
 			return false
 		default:
 			g.events <- frame
@@ -1116,7 +1118,7 @@ func (g *Group) GetBanWords() (banWord BanWord, err error) {
 //
 // Returns:
 //   - error: An error if setting the banned word settings fails.
-func (g *Group) SetBanWords(banWord BanWord) (err error) {
+func (g *Group) SetBanWords(banWord models.BanWord) (err error) {
 	cb := func(frame string) bool {
 		head, _, _ := strings.Cut(frame, ":")
 		switch head {
@@ -1341,12 +1343,12 @@ func (g *Group) RemoveModerator(username string) (err error) {
 // Returns:
 //   - []*ModAction: A list of ModAction objects representing the moderator actions.
 //   - error: An error if retrieving the mod actions fails.
-func (g *Group) GetModActions(dir string, offset int) (modactions []*ModAction, err error) {
+func (g *Group) GetModActions(dir string, offset int) (modactions []*models.ModAction, err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
 		switch head {
 		case "modactions":
-			modactions = ParseModActions(data)
+			modactions = models.ParseModActions(data)
 			return false
 		default:
 			g.events <- frame
@@ -1600,12 +1602,12 @@ func (g *Group) eventOK(data string) {
 	g.SessionID = fields[1]
 	g.UserID, _ = strconv.Atoi(fields[1][:8])
 	g.LoggedIn = fields[2] == "M" // "C" if anon
-	g.LoginTime, _ = ParseTime(fields[4])
+	g.LoginTime, _ = utils.ParseTime(fields[4])
 
 	if fields[3] != "" {
 		g.LoginName = fields[3]
 	} else {
-		g.LoginName = GetAnonName(int(g.LoginTime.Unix()), g.UserID)
+		g.LoginName = utils.GetAnonName(int(g.LoginTime.Unix()), g.UserID)
 	}
 
 	g.TimeDiff = time.Since(g.LoginTime)
@@ -1656,7 +1658,7 @@ func (g *Group) eventInited(string) {
 	var nomore bool
 	var err error
 	for histLen := g.Messages.Len(); histLen < MAX_MESSAGE_HISTORY && err == nil && !nomore; histLen += count {
-		count, nomore, err = g.getMoreHistory(offset, Min(20, MAX_MESSAGE_HISTORY-histLen))
+		count, nomore, err = g.getMoreHistory(offset, utils.Min(20, MAX_MESSAGE_HISTORY-histLen))
 		offset++
 	}
 }
@@ -1723,21 +1725,21 @@ func (g *Group) eventRestrictUpdate(data string) {
 // eventParticipant handles the participant event.
 func (g *Group) eventParticipant(data string) {
 	fields := strings.SplitN(data, ":", 7)
-	var user *User
-	t, _ := ParseTime(fields[6])
+	var user *models.User
+	t, _ := utils.ParseTime(fields[6])
 	userID, _ := strconv.Atoi(fields[2])
 
 	if fields[3] != "None" {
-		user = &User{Name: fields[3]}
+		user = &models.User{Name: fields[3]}
 	} else if fields[4] != "None" {
-		user = &User{Name: fields[4], IsAnon: true}
+		user = &models.User{Name: fields[4], IsAnon: true}
 	} else {
-		user = &User{Name: GetAnonName(int(t.Unix()), userID), IsAnon: true}
+		user = &models.User{Name: utils.GetAnonName(int(t.Unix()), userID), IsAnon: true}
 	}
 
 	user.IsSelf = userID == g.UserID && user.Name == g.LoginName
 
-	p := &Participant{
+	p := &models.Participant{
 		ParticipantID: fields[1],
 		UserID:        userID,
 		User:          user,
@@ -1791,7 +1793,7 @@ func (g *Group) eventParticipant(data string) {
 func (g *Group) eventFlagsUpdate(data string) {
 	newFlag, _ := strconv.ParseInt(data, 10, 64)
 	// Compute the changes
-	added, removed := ComputeFlagChanges(g.Flag, newFlag)
+	added, removed := utils.ComputeFlagChanges(g.Flag, newFlag)
 
 	event := &Event{
 		Type:        OnFlagUpdate,
@@ -1818,7 +1820,7 @@ func (g *Group) eventModerators(data string) {
 	var (
 		newMods                          = make(map[string]int64)
 		events                           []*Event
-		user                             *User
+		user                             *models.User
 		username, uname, flag            string
 		newFlag, oldFlag, added, removed int64
 		ok, selfRemoved                  bool
@@ -1828,7 +1830,7 @@ func (g *Group) eventModerators(data string) {
 	// Process moderator addition and changes
 	for _, entry := range strings.Split(data, ":") {
 		username, flag, _ = strings.Cut(entry, ",")
-		user = &User{Name: username, IsSelf: strings.EqualFold(username, g.LoginName)}
+		user = &models.User{Name: username, IsSelf: strings.EqualFold(username, g.LoginName)}
 		newFlag, _ = strconv.ParseInt(flag, 10, 64)
 		newMods[username] = newFlag
 
@@ -1840,7 +1842,7 @@ func (g *Group) eventModerators(data string) {
 			}
 
 			// Compute the changes
-			added, removed = ComputeFlagChanges(oldFlag, newFlag)
+			added, removed = utils.ComputeFlagChanges(oldFlag, newFlag)
 			event = &Event{
 				Type:             OnModeratorUpdated,
 				Group:            g,
@@ -1875,7 +1877,7 @@ func (g *Group) eventModerators(data string) {
 		}
 
 		// When it reaches this scope, it means the username has been removed.
-		user = &User{Name: username, IsSelf: strings.EqualFold(username, g.LoginName)}
+		user = &models.User{Name: username, IsSelf: strings.EqualFold(username, g.LoginName)}
 		event = &Event{
 			Type:  OnModeratorRemoved,
 			Group: g,
@@ -1953,8 +1955,8 @@ func (g *Group) eventMessageClearAll(data string) {
 // eventUserBlocked handles the user blocked event.
 func (g *Group) eventUserBlocked(data string) {
 	fields := strings.SplitN(data, ":", 5)
-	t, _ := ParseTime(fields[4])
-	blocked := &Blocked{
+	t, _ := utils.ParseTime(fields[4])
+	blocked := &models.Blocked{
 		ModerationID: fields[0],
 		IP:           fields[1],
 		Target:       fields[2],
@@ -1973,8 +1975,8 @@ func (g *Group) eventUserBlocked(data string) {
 // eventUserUnblocked handles the user unblocked event.
 func (g *Group) eventUserUnblocked(data string) {
 	fields := strings.SplitN(data, ":", 5)
-	t, _ := ParseTime(fields[4])
-	unblocked := &Unblocked{
+	t, _ := utils.ParseTime(fields[4])
+	unblocked := &models.Unblocked{
 		ModerationID: fields[0],
 		IP:           fields[1],
 		Target:       fields[2],
@@ -2002,7 +2004,7 @@ func (g *Group) eventAllUserUnblocked(string) {
 // eventUpdateGroupInfo handles the update group info event.
 func (g *Group) eventUpdateGroupInfo(data string) {
 	title, message, _ := strings.Cut(data, ":")
-	groupinfo := &GroupInfo{
+	groupinfo := &models.GroupInfo{
 		Title:        title,
 		OwnerMessage: message,
 	}
@@ -2020,7 +2022,7 @@ func (g *Group) eventUpdateUserProfile(data string) {
 	event := &Event{
 		Type:  OnUpdateUserProfile,
 		Group: g,
-		User:  &User{Name: data, IsSelf: strings.EqualFold(data, g.LoginName)},
+		User:  &models.User{Name: data, IsSelf: strings.EqualFold(data, g.LoginName)},
 	}
 	g.App.dispatchEvent(event)
 }

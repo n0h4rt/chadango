@@ -8,6 +8,8 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/n0h4rt/chadango/models"
+	"github.com/n0h4rt/chadango/utils"
 	"github.com/rs/zerolog/log"
 )
 
@@ -23,7 +25,6 @@ type Application struct {
 	Groups        SyncMap[string, *Group] // Groups stores the groups the application is connected to.
 	eventHandlers []Handler               // eventHandlers contains the registered event handlers for the application.
 	errorHandlers []Handler               // errorHandlers contains the registered error handlers for the application.
-	interruptChan chan os.Signal          // interruptChan receives interrupt signals to gracefully stop the application.
 	context       context.Context         // Context for running the application.
 	cancelCtx     context.CancelFunc      // Function for stopping the application.
 	initialized   bool                    // initialized indicates whether the application has been initialized.
@@ -54,7 +55,7 @@ func (app *Application) AddHandler(handler Handler) *Application {
 // Returns:
 //   - *Application: The application instance for method chaining.
 func (app *Application) RemoveHandler(handler Handler) *Application {
-	app.eventHandlers = Remove(app.eventHandlers, handler)
+	app.eventHandlers = utils.Remove(app.eventHandlers, handler)
 
 	return app
 }
@@ -84,7 +85,7 @@ func (app *Application) AddErrorHandler(handler Handler) *Application {
 // Returns:
 //   - *Application: The application instance for method chaining.
 func (app *Application) RemoveErrorHandler(handler Handler) *Application {
-	app.errorHandlers = Remove(app.errorHandlers, handler)
+	app.errorHandlers = utils.Remove(app.errorHandlers, handler)
 
 	return app
 }
@@ -190,8 +191,6 @@ func (app *Application) Initialize() *Application {
 	app.persistence.Initialize()
 
 	app.Groups = NewSyncMap[string, *Group]()
-	app.eventHandlers = []Handler{}
-	app.errorHandlers = []Handler{}
 	app.checkConfig()
 	app.initialized = true
 
@@ -204,16 +203,16 @@ func (app *Application) checkConfig() {
 		app.Config.AnonName = "anon0001"
 	}
 	if app.Config.NameColor == "" {
-		app.Config.NameColor = DEFAULT_COLOR
+		app.Config.NameColor = models.DEFAULT_COLOR
 	}
 	if app.Config.TextColor == "" {
-		app.Config.TextColor = DEFAULT_COLOR
+		app.Config.TextColor = models.DEFAULT_COLOR
 	}
 	if app.Config.TextFont == "" {
-		app.Config.TextFont = DEFAULT_TEXT_FONT
+		app.Config.TextFont = models.DEFAULT_TEXT_FONT
 	}
 	if app.Config.TextSize == 0 {
-		app.Config.TextSize = DEFAULT_TEXT_SIZE
+		app.Config.TextSize = models.DEFAULT_TEXT_SIZE
 	}
 }
 
@@ -245,9 +244,6 @@ func (app *Application) Start(ctx context.Context) *Application {
 
 	app.persistence.Runner(app.context)
 
-	app.interruptChan = make(chan os.Signal, 1)
-	signal.Notify(app.interruptChan, os.Interrupt, syscall.SIGTERM)
-
 	app.dispatchEvent(&Event{Type: OnStart})
 
 	return app
@@ -255,9 +251,12 @@ func (app *Application) Start(ctx context.Context) *Application {
 
 // Park waits for the application to stop or receive an interrupt signal.
 func (app *Application) Park() {
+	intCh := make(chan os.Signal, 1)
+	signal.Notify(intCh, os.Interrupt, syscall.SIGTERM)
+
 	select {
 	case <-app.context.Done():
-	case <-app.interruptChan:
+	case <-intCh:
 		app.Stop()
 	}
 }
@@ -309,7 +308,7 @@ func (app *Application) JoinGroup(groupName string) error {
 	group := Group{
 		App:       app,
 		Name:      groupName,
-		WsUrl:     GetServer(groupName),
+		WsUrl:     utils.GetServer(groupName),
 		AnonName:  app.Config.AnonName,
 		NameColor: app.Config.NameColor,
 		TextColor: app.Config.TextColor,
@@ -399,5 +398,9 @@ func (app *Application) PublicAPI() *PublicAPI {
 // Returns:
 //   - *Application: A new instance of the [Application].
 func New(config *Config) *Application {
-	return &Application{Config: config}
+	return &Application{
+		eventHandlers: []Handler{},
+		errorHandlers: []Handler{},
+		Config:        config,
+	}
 }

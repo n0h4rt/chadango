@@ -2,6 +2,8 @@ package chadango
 
 import (
 	"strings"
+
+	"github.com/n0h4rt/chadango/utils"
 )
 
 // Handler is an interface that defines the methods for handling events.
@@ -52,7 +54,7 @@ func (ch *CommandHandler) Check(event *Event) bool {
 
 	text = strings.TrimLeft(text[len(ch.app.Config.Prefix):], "\r\n\t ")
 	fields := strings.Fields(text)
-	if len(fields) == 0 || (len(fields) > 0 && !Contains(ch.Commands, fields[0])) {
+	if len(fields) == 0 || (len(fields) > 0 && !utils.Contains(ch.Commands, fields[0])) {
 		return false
 	}
 

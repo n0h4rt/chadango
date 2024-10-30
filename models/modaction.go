@@ -1,14 +1,41 @@
-package chadango
+package models
 
 import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/n0h4rt/chadango/utils"
 )
+
+var GroupPermissions = map[string]int64{
+	"DELETED":                1,
+	"EDIT_MODS":              2,
+	"EDIT_MOD_VISIBILITY":    4,
+	"EDIT_BW":                8,
+	"EDIT_RESTRICTIONS":      16,
+	"EDIT_GROUP":             32,
+	"SEE_COUNTER":            64,
+	"SEE_MOD_CHANNEL":        128,
+	"SEE_MOD_ACTIONS":        256,
+	"EDIT_NLP":               512,
+	"EDIT_GP_ANNC":           1024,
+	"EDIT_ADMINS":            2048, // removed in current version
+	"EDIT_SUPERMODS":         4096, // removed in current version
+	"NO_SENDING_LIMITATIONS": 8192,
+	"SEE_IPS":                16384,
+	"CLOSE_GROUP":            32768,
+	"CAN_BROADCAST":          65536,
+	"MOD_ICON_VISIBLE":       131072,
+	"IS_STAFF":               262144,
+	"STAFF_ICON_VISIBLE":     524288,
+	"UNBAN_ALL":              1048576,
+}
 
 var ModactionTmpl = map[string]string{
 	"mod_actions_title":           "Moderator Actions Log",
@@ -69,6 +96,10 @@ var ModactionTmpl = map[string]string{
 	"allow":                       "allow",
 	"block":                       "block",
 }
+
+var (
+	NameFontTag = regexp.MustCompile(`<[nf]\s?[^>]*>`)
+)
 
 // ModAction represents a moderation action.
 type ModAction struct {
@@ -152,29 +183,39 @@ func (ma *ModAction) String() (actionDesc string) {
 		var oldFlag, newFlag int64
 
 		// Create a slice of key-value pairs
-		pairs := make([]KeyValue, 0, len(GroupPermissions))
+		pairs := make([]struct {
+			key string
+			val int64
+		}, 0, len(GroupPermissions))
+
 		for key, value := range GroupPermissions {
-			pairs = append(pairs, KeyValue{Key: key, Value: value})
+			pairs = append(pairs, struct {
+				key string
+				val int64
+			}{
+				key: key,
+				val: value,
+			})
 		}
 
 		// Sort the slice based on the values
 		sort.Slice(pairs, func(i, j int) bool {
-			return pairs[i].Value < pairs[j].Value
+			return pairs[i].val < pairs[j].val
 		})
 
 		// Iterate over the sorted slice
 		for _, pair := range pairs {
-			if pair.Value == 131072 || pair.Value == 524288 {
+			if pair.val == 131072 || pair.val == 524288 {
 				continue
 			}
-			oldFlag = pair.Value & permissions[0]
-			newFlag = pair.Value & permissions[1]
+			oldFlag = pair.val & permissions[0]
+			newFlag = pair.val & permissions[1]
 			if newFlag != oldFlag {
-				pair.Key = ModactionTmpl["perm_"+strings.ToLower(pair.Key)]
+				pair.key = ModactionTmpl["perm_"+strings.ToLower(pair.key)]
 				if newFlag != 0 {
-					addedPermissions = append(addedPermissions, pair.Key)
+					addedPermissions = append(addedPermissions, pair.key)
 				} else {
-					removedPermissions = append(removedPermissions, pair.Key)
+					removedPermissions = append(removedPermissions, pair.key)
 				}
 			}
 		}
@@ -302,7 +343,7 @@ func ParseModActions(data string) (modActions []*ModAction) {
 	for _, entry := range entries {
 		fields = strings.SplitN(entry, ",", 7)
 		id, _ = strconv.Atoi(fields[0])
-		t, _ = ParseTime(fields[5])
+		t, _ = utils.ParseTime(fields[5])
 		ma = &ModAction{
 			ID:     id,
 			Type:   fields[1],

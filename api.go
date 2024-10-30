@@ -13,6 +13,9 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/n0h4rt/chadango/models"
+	"github.com/n0h4rt/chadango/utils"
 )
 
 // httpClient is an [http.Client] to interact with the Chatango APIs.
@@ -117,13 +120,10 @@ func (p *APIClient) Get(url string, param url.Values) (*http.Response, error) {
 //   - *http.Response: The HTTP response.
 //   - error: An error if the request fails.
 func (p *APIClient) PostForm(url string, data url.Values) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(p.context, "POST", url, nil)
+	req, err := http.NewRequestWithContext(p.context, "POST", url, strings.NewReader(data.Encode()))
 	if err != nil {
 		return nil, err
 	}
-
-	req.PostForm = data
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	return executeRequest(req)
 }
@@ -153,8 +153,8 @@ func (p *APIClient) PostMultipart(url string, body io.Reader, ctype string) (*ht
 type PrivateAPI struct {
 	APIClient
 
-	MessageBackground MessageBackground
-	MessageStyle      MessageStyle
+	MessageBackground models.MessageBackground
+	MessageStyle      models.MessageStyle
 
 	username       string
 	password       string
@@ -422,7 +422,7 @@ func (p *PrivateAPI) RetrieveUpdate() (err error) {
 // Returns:
 //   - []PeopleResult: A list of search results.
 //   - error: An error if the search fails.
-func (p *PrivateAPI) SearchPeople(query PeopleQuery) (result []PeopleResult, err error) {
+func (p *PrivateAPI) SearchPeople(query models.PeopleQuery) (result []models.PeopleResult, err error) {
 	var res *http.Response
 	if res, err = p.PostForm(API_SEARCH_PEOPLE, query.GetForm()); err != nil {
 		return
@@ -439,7 +439,7 @@ func (p *PrivateAPI) SearchPeople(query PeopleQuery) (result []PeopleResult, err
 		var isonline string // Should we parse it into boolean? "0" || "1"
 		for _, entry := range strings.Split(data, ",") {
 			username, isonline, _ = strings.Cut(entry, ";")
-			result = append(result, PeopleResult{username, isonline == "1"})
+			result = append(result, models.PeopleResult{Username: username, IsOnline: isonline == "1"})
 		}
 	}
 
@@ -529,7 +529,7 @@ func (p *PrivateAPI) UpdateMsgStyle() (err error) {
 // Returns:
 //   - UploadedImage: The uploaded image information.
 //   - error: An error if the upload fails.
-func (p *PrivateAPI) UploadImage(filename string, image io.Reader) (img UploadedImage, err error) {
+func (p *PrivateAPI) UploadImage(filename string, image io.Reader) (img models.UploadedImage, err error) {
 	var (
 		reqBody *bytes.Buffer
 		writer  = multipart.NewWriter(reqBody)
@@ -703,11 +703,11 @@ func (p *PublicAPI) CheckUsername(username string) (ok bool, notOkReasons []stri
 // Returns:
 //   - MessageBackground: The message background of the specified username.
 //   - error: An error if the retrieval fails.
-func (p *PublicAPI) GetBackground(username string) (background MessageBackground, err error) {
+func (p *PublicAPI) GetBackground(username string) (background models.MessageBackground, err error) {
 	username = strings.ToLower(username)
 
 	var res *http.Response
-	res, err = p.Get(UsernameToURL(API_MSG_BG_XML, username), nil)
+	res, err = p.Get(utils.UsernameToURL(API_MSG_BG_XML, username), nil)
 	if err != nil {
 		return
 	}
@@ -717,7 +717,7 @@ func (p *PublicAPI) GetBackground(username string) (background MessageBackground
 		return
 	}
 
-	background.username = username
+	background.Username = username
 
 	return
 }
@@ -730,11 +730,11 @@ func (p *PublicAPI) GetBackground(username string) (background MessageBackground
 // Returns:
 //   - FullProfile: The full profile of the specified username.
 //   - error: An error if the retrieval fails.
-func (p *PublicAPI) GetFullProfile(username string) (profile FullProfile, err error) {
+func (p *PublicAPI) GetFullProfile(username string) (profile models.FullProfile, err error) {
 	username = strings.ToLower(username)
 
 	var res *http.Response
-	if res, err = p.Get(UsernameToURL(API_MINI_XML, username), nil); err != nil {
+	if res, err = p.Get(utils.UsernameToURL(API_MINI_XML, username), nil); err != nil {
 		return
 	}
 	defer res.Body.Close()
@@ -752,11 +752,11 @@ func (p *PublicAPI) GetFullProfile(username string) (profile FullProfile, err er
 // Returns:
 //   - MiniProfile: The mini profile of the specified username.
 //   - error: An error if the retrieval fails.
-func (p *PublicAPI) GetMiniProfile(username string) (profile MiniProfile, err error) {
+func (p *PublicAPI) GetMiniProfile(username string) (profile models.MiniProfile, err error) {
 	username = strings.ToLower(username)
 
 	var res *http.Response
-	if res, err = p.Get(UsernameToURL(API_MINI_XML, username), nil); err != nil {
+	if res, err = p.Get(utils.UsernameToURL(API_MINI_XML, username), nil); err != nil {
 		return
 	}
 	defer res.Body.Close()
@@ -765,7 +765,7 @@ func (p *PublicAPI) GetMiniProfile(username string) (profile MiniProfile, err er
 		return
 	}
 
-	profile.username = username
+	profile.Username = username
 
 	return
 }
@@ -778,11 +778,11 @@ func (p *PublicAPI) GetMiniProfile(username string) (profile MiniProfile, err er
 // Returns:
 //   - MessageStyle: The message style of the specified username.
 //   - error: An error if the retrieval fails.
-func (p *PublicAPI) GetStyle(username string) (style MessageStyle, err error) {
+func (p *PublicAPI) GetStyle(username string) (style models.MessageStyle, err error) {
 	username = strings.ToLower(username)
 
 	var res *http.Response
-	res, err = p.Get(UsernameToURL(API_MSG_STYLE_JSON, username), nil)
+	res, err = p.Get(utils.UsernameToURL(API_MSG_STYLE_JSON, username), nil)
 	if err != nil {
 		return
 	}

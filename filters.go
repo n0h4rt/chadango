@@ -3,6 +3,8 @@ package chadango
 import (
 	"regexp"
 	"strings"
+
+	"github.com/n0h4rt/chadango/utils"
 )
 
 // This approach aims to simplify the syntax of combining filters.
@@ -182,7 +184,7 @@ func (f *UserFilter) Check(event *Event) bool {
 	if event.User == nil {
 		return false
 	}
-	return Contains(f.Users, strings.ToLower(event.User.Name))
+	return utils.Contains(f.Users, strings.ToLower(event.User.Name))
 }
 
 // And returns a new [CombineFilter] that combines the current filter with the provided filter using logical AND.
@@ -239,7 +241,7 @@ func (f *UserFilter) Add(userName string) {
 // Args:
 //   - userName: The username to remove from the filter's list.
 func (f *UserFilter) Remove(userName string) {
-	f.Users = Remove(f.Users, strings.ToLower(userName))
+	f.Users = utils.Remove(f.Users, strings.ToLower(userName))
 }
 
 // NewUserFilter returns a new [UserFilter].
@@ -271,7 +273,7 @@ func (f *ChatFilter) Check(event *Event) bool {
 	if event.Group == nil {
 		return false
 	}
-	return Contains(f.Chats, event.Group.Name)
+	return utils.Contains(f.Chats, event.Group.Name)
 }
 
 // And returns a new [CombineFilter] that combines the current filter with the provided filter using logical AND.
@@ -328,7 +330,7 @@ func (f *ChatFilter) Add(chatName string) {
 // Args:
 //   - chatName: The chat name to remove from the filter's list.
 func (f *ChatFilter) Remove(chatName string) {
-	f.Chats = Remove(f.Chats, strings.ToLower(chatName))
+	f.Chats = utils.Remove(f.Chats, strings.ToLower(chatName))
 }
 
 // NewChatFilter returns a new [ChatFilter].

@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/n0h4rt/chadango/models"
+	"github.com/n0h4rt/chadango/utils"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -15,12 +17,12 @@ func TestParseGroupMessage(t *testing.T) {
 	tests := []struct {
 		name string
 		data string
-		want *Message
+		want *models.Message
 	}{
 		{
 			name: "NormalMessage",
 			data: "1717866894:Nekonyan::48875733:moderationID:messageID:userIP:2392::<n33FFFF/><f x11000=\"century gothic\">Press F in the chat",
-			want: &Message{
+			want: &models.Message{
 				Time:         time.Unix(1717866894, 0),
 				UserID:       48875733,
 				ModerationID: "moderationID",
@@ -28,14 +30,14 @@ func TestParseGroupMessage(t *testing.T) {
 				UserIP:       "userIP",
 				RawText:      "<n33FFFF/><f x11000=\"century gothic\">Press F in the chat",
 				Text:         "Press F in the chat",
-				User:         &User{Name: "Nekonyan", IsSelf: true},
+				User:         &models.User{Name: "Nekonyan", IsSelf: true},
 				FromSelf:     true,
 			},
 		},
 		{
 			name: "NamedAnonMessage",
 			data: "1721913578.62::anonName:23361675:moderationID:messageID:userIP:0::<n3512/>asdfghjkl",
-			want: &Message{
+			want: &models.Message{
 				Time:         time.Unix(1721913578, int64(.62*1e6)),
 				UserID:       23361675,
 				ModerationID: "moderationID",
@@ -43,14 +45,14 @@ func TestParseGroupMessage(t *testing.T) {
 				UserIP:       "userIP",
 				RawText:      "<n3512/>asdfghjkl",
 				Text:         "asdfghjkl",
-				User:         &User{Name: "anonName", IsAnon: true},
+				User:         &models.User{Name: "anonName", IsAnon: true},
 				FromAnon:     true,
 			},
 		},
 		{
 			name: "UnnamedAnonMessage",
 			data: "1721913578.62:::23361675:moderationID:messageID:userIP:0::<n3512/>asdfghjkl",
-			want: &Message{
+			want: &models.Message{
 				Time:         time.Unix(1721913578, int64(.62*1e6)),
 				UserID:       23361675,
 				ModerationID: "moderationID",
@@ -58,7 +60,7 @@ func TestParseGroupMessage(t *testing.T) {
 				UserIP:       "userIP",
 				RawText:      "<n3512/>asdfghjkl",
 				Text:         "asdfghjkl",
-				User:         &User{Name: GetAnonName(3512, 23361675), IsAnon: true},
+				User:         &models.User{Name: utils.GetAnonName(3512, 23361675), IsAnon: true},
 				FromAnon:     true,
 				AnonSeed:     3512,
 			},
@@ -90,17 +92,17 @@ func TestParsePrivateMessage(t *testing.T) {
 	tests := []struct {
 		name string
 		data string
-		want *Message
+		want *models.Message
 	}{
 		{
 			name: "NormalMessage",
 			data: "clonerxyz:clonerxyz:unknown:1723029464.85:0:<m v=\"1\">text</m>",
-			want: &Message{
+			want: &models.Message{
 				Time:      time.Unix(1723029464, 850000),
 				ID:        "1723029464",
 				RawText:   "<m v=\"1\">text</m>",
 				Text:      "text",
-				User:      &User{Name: "clonerxyz"},
+				User:      &models.User{Name: "clonerxyz"},
 				IsPrivate: true,
 			},
 		},
@@ -125,17 +127,17 @@ func TestParseAnnouncement(t *testing.T) {
 	tests := []struct {
 		name string
 		data string
-		want *Message
+		want *models.Message
 	}{
 		{
 			name: "NormalAnnouncement",
 			data: "testgroup:1688488704:This is an announcement",
-			want: &Message{RawText: "This is an announcement", Text: "This is an announcement"},
+			want: &models.Message{RawText: "This is an announcement", Text: "This is an announcement"},
 		},
 		{
 			name: "AnnouncementWithHTML",
 			data: "testgroup:1688488704:<font color=\"#FF0000\">This is an announcement</font>",
-			want: &Message{RawText: "<font color=\"#FF0000\">This is an announcement</font>", Text: "This is an announcement"},
+			want: &models.Message{RawText: "<font color=\"#FF0000\">This is an announcement</font>", Text: "This is an announcement"},
 		},
 	}
 	for _, tt := range tests {

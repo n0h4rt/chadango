@@ -3,13 +3,14 @@ package chadango
 import (
 	"testing"
 
+	"github.com/n0h4rt/chadango/models"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestUserFilter_Check(t *testing.T) {
 	filter := NewUserFilter("user1", "user2", "user3")
-	event1 := &Event{User: &User{Name: "user1"}}
-	event2 := &Event{User: &User{Name: "user4"}}
+	event1 := &Event{User: &models.User{Name: "user1"}}
+	event2 := &Event{User: &models.User{Name: "user4"}}
 
 	// Check if the filter matches event1
 	result1 := filter.Check(event1)
@@ -26,12 +27,12 @@ func TestUserFilter_Add_Remove(t *testing.T) {
 	filter.(*UserFilter).Add("user2")
 
 	// Check if the filter matches "user1"
-	event1 := &Event{User: &User{Name: "user1"}}
+	event1 := &Event{User: &models.User{Name: "user1"}}
 	result1 := filter.Check(event1)
 	assert.True(t, result1, "UserFilter should match event1")
 
 	// Check if the filter matches "user2"
-	event2 := &Event{User: &User{Name: "user2"}}
+	event2 := &Event{User: &models.User{Name: "user2"}}
 	result2 := filter.Check(event2)
 	assert.True(t, result2, "UserFilter should match event2")
 
@@ -81,8 +82,8 @@ func TestChatFilter_Add_Remove(t *testing.T) {
 func TestRegexFilter_Check(t *testing.T) {
 	pattern := `https?://\S+\.(?:png|jpe?g|gif|bmp|svg)`
 	filter := NewRegexFilter(pattern)
-	event1 := &Event{Type: OnMessage, Message: &Message{Text: "Lorem ipsum dolor sit amet https://i.imgur.com/Ag8wg1F.png"}}
-	event2 := &Event{Type: OnMessage, Message: &Message{Text: "Dolor sit amet"}}
+	event1 := &Event{Type: OnMessage, Message: &Message{nil, nil, models.Message{Text: "Lorem ipsum dolor sit amet https://i.imgur.com/Ag8wg1F.png"}}}
+	event2 := &Event{Type: OnMessage, Message: &Message{nil, nil, models.Message{Text: "Dolor sit amet"}}}
 
 	// Check if the filter matches event1
 	result1 := filter.Check(event1)
@@ -101,12 +102,12 @@ func TestCombineFilter_And(t *testing.T) {
 	filter := userFilter.And(chatFilter)
 
 	event1 := &Event{
-		User:  &User{Name: "user1"},
+		User:  &models.User{Name: "user1"},
 		Group: &Group{Name: "chat1"},
 	}
 
 	event2 := &Event{
-		User:  &User{Name: "user2"},
+		User:  &models.User{Name: "user2"},
 		Group: &Group{Name: "chat2"},
 	}
 
@@ -128,13 +129,13 @@ func TestCombineFilter_Or(t *testing.T) {
 
 	event1 := &Event{
 		Type:  OnMessage,
-		User:  &User{Name: "user1"},
+		User:  &models.User{Name: "user1"},
 		Group: &Group{Name: "chat1"},
 	}
 
 	event2 := &Event{
 		Type:  OnMessage,
-		User:  &User{Name: "user2"},
+		User:  &models.User{Name: "user2"},
 		Group: &Group{Name: "chat1"},
 	}
 
@@ -156,13 +157,13 @@ func TestCombineFilter_Xor(t *testing.T) {
 
 	event1 := &Event{
 		Type:  OnMessage,
-		User:  &User{Name: "user1"},
+		User:  &models.User{Name: "user1"},
 		Group: &Group{Name: "chat1"},
 	}
 
 	event2 := &Event{
 		Type:  OnMessage,
-		User:  &User{Name: "user2"},
+		User:  &models.User{Name: "user2"},
 		Group: &Group{Name: "chat1"},
 	}
 
@@ -181,8 +182,8 @@ func TestCombineFilter_Not(t *testing.T) {
 	// Create a NOT filter
 	notFilter := userFilter.Not()
 
-	event1 := &Event{User: &User{Name: "user1"}}
-	event2 := &Event{User: &User{Name: "user2"}}
+	event1 := &Event{User: &models.User{Name: "user1"}}
+	event2 := &Event{User: &models.User{Name: "user2"}}
 
 	// Check if the NOT filter matches event1
 	result1 := notFilter.Check(event1)

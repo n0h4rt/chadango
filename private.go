@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/n0h4rt/chadango/models"
+	"github.com/n0h4rt/chadango/utils"
 	"github.com/rs/zerolog/log"
 )
 
@@ -375,17 +377,17 @@ func (p *Private) SendMessage(username, text string, a ...any) (err error) {
 // Returns:
 //   - UserStatus: The online status of the username.
 //   - error: An error if the operation fails.
-func (p *Private) Track(username string) (status UserStatus, err error) {
+func (p *Private) Track(username string) (status models.UserStatus, err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
 		switch head {
 		case "track":
 			fields := strings.SplitN(data, ":", 3)
-			status.User = &User{Name: fields[0]}
+			status.User = &models.User{Name: fields[0]}
 			status.Info = fields[2]
 			switch fields[2] {
 			case "offline":
-				status.Time, _ = ParseTime(fields[1])
+				status.Time, _ = utils.ParseTime(fields[1])
 			case "online", "app":
 				status.Idle, _ = time.ParseDuration(fields[1] + "m")
 			case "invalid":
@@ -405,9 +407,9 @@ func (p *Private) Track(username string) (status UserStatus, err error) {
 // GetSettings retrieves the current settings.
 //
 // Returns:
-//   - PrivateSetting: The current settings.
+//   - PMSetting: The current settings.
 //   - error: An error if the operation fails.
-func (p *Private) GetSettings() (setting PrivateSetting, err error) {
+func (p *Private) GetSettings() (setting models.PMSetting, err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
 		switch head {
@@ -442,7 +444,7 @@ func (p *Private) GetSettings() (setting PrivateSetting, err error) {
 //
 // Returns:
 //   - error: An error if the operation fails.
-func (p *Private) SetSettings(setting PrivateSetting) (err error) {
+func (p *Private) SetSettings(setting models.PMSetting) (err error) {
 	onoff := func(state bool) string {
 		if state {
 			return "on"
@@ -470,19 +472,19 @@ func (p *Private) SetSettings(setting PrivateSetting) (err error) {
 // Returns:
 //   - []UserStatus: The list of friends and their status.
 //   - error: An error if the operation fails.
-func (p *Private) GetFriendList() (friendlist []UserStatus, err error) {
+func (p *Private) GetFriendList() (friendlist []models.UserStatus, err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
 		switch head {
 		case "wl":
 			fields := strings.Split(data, ":")
-			var status UserStatus
+			var status models.UserStatus
 			for i := 0; i < len(fields); i += 4 {
-				status = UserStatus{User: &User{Name: fields[i]}}
+				status = models.UserStatus{User: &models.User{Name: fields[i]}}
 				switch fields[i+2] {
 				case "off":
 					status.Info = "offline"
-					status.Time, _ = ParseTime(fields[i+1])
+					status.Time, _ = utils.ParseTime(fields[i+1])
 				case "on":
 					status.Info = "online"
 					status.Idle, _ = time.ParseDuration(fields[i+3] + "m")
@@ -512,17 +514,17 @@ func (p *Private) GetFriendList() (friendlist []UserStatus, err error) {
 // Returns:
 //   - UserStatus: The status of the added friend.
 //   - error: An error if the operation fails.
-func (p *Private) AddFriend(username string) (status UserStatus, err error) {
+func (p *Private) AddFriend(username string) (status models.UserStatus, err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
 		switch head {
 		case "wladd":
 			fields := strings.SplitN(data, ":", 3)
-			status.User = &User{Name: fields[0]}
+			status.User = &models.User{Name: fields[0]}
 			switch fields[1] {
 			case "off":
 				status.Info = "offline"
-				status.Time, _ = ParseTime(fields[2])
+				status.Time, _ = utils.ParseTime(fields[2])
 			case "on":
 				status.Info = "online"
 				status.Idle, _ = time.ParseDuration(fields[2] + "m")
@@ -571,13 +573,13 @@ func (p *Private) RemoveFriend(username string) (err error) {
 // Returns:
 //   - users: A slice of blocked users.
 //   - error: An error if the operation fails.
-func (p *Private) GetBlocked() (users []*User, err error) {
+func (p *Private) GetBlocked() (users []*models.User, err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
 		switch head {
 		case "block_list":
 			for _, username := range strings.Split(data, ":") {
-				users = append(users, &User{Name: username})
+				users = append(users, &models.User{Name: username})
 			}
 			return false
 		default:
@@ -647,17 +649,17 @@ func (p *Private) Unblock(username string) (err error) {
 // Returns:
 //   - UserStatus: The status of the connected user.
 //   - error: An error if the operation fails.
-func (p *Private) ConnectUser(username string) (status UserStatus, err error) {
+func (p *Private) ConnectUser(username string) (status models.UserStatus, err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
 		switch head {
 		case "connect":
 			fields := strings.SplitN(data, ":", 3)
-			status.User = &User{Name: fields[0]}
+			status.User = &models.User{Name: fields[0]}
 			status.Info = fields[2]
 			switch fields[2] {
 			case "offline":
-				status.Time, _ = ParseTime(fields[2])
+				status.Time, _ = utils.ParseTime(fields[2])
 			case "online", "app":
 				status.Idle, _ = time.ParseDuration(fields[2] + "m")
 			}
@@ -693,16 +695,16 @@ func (p *Private) DisconnectUser(username string) (err error) {
 // Returns:
 //   - []UserStatus: A slice of `UserStatus` objects representing the status of each username.
 //   - error: An error if the operation fails.
-func (p *Private) GetPresence(usernames []string) (statuslist []UserStatus, err error) {
+func (p *Private) GetPresence(usernames []string) (statuslist []models.UserStatus, err error) {
 	cb := func(frame string) bool {
 		head, data, _ := strings.Cut(frame, ":")
 		switch head {
 		case "presence":
 			fields := strings.Split(data, ":")
-			var status UserStatus
+			var status models.UserStatus
 			var dur time.Duration
 			for i := 0; i < len(fields); i += 3 {
-				status = UserStatus{User: &User{Name: fields[i]}, Info: fields[i+2]}
+				status = models.UserStatus{User: &models.User{Name: fields[i]}, Info: fields[i+2]}
 				switch fields[i+2] {
 				case "offline":
 					dur, _ = time.ParseDuration(fields[i+1] + "m")
@@ -899,7 +901,7 @@ func (p *Private) wsOnFrame(frame string) {
 //
 // It also saves the time differences between the client and the server (serverTime - clientTime).
 func (p *Private) eventServerTime(data string) {
-	p.LoginTime, _ = ParseTime(data)
+	p.LoginTime, _ = utils.ParseTime(data)
 	p.TimeDiff = time.Since(p.LoginTime)
 }
 
@@ -977,7 +979,7 @@ func (p *Private) eventFriendOnline(data string) {
 		Type:      OnPrivateFriendOnline,
 		Private:   p,
 		IsPrivate: true,
-		User:      &User{Name: username},
+		User:      &models.User{Name: username},
 	}
 	p.App.dispatchEvent(event)
 }
@@ -990,7 +992,7 @@ func (p *Private) eventFriendOnlineApp(data string) {
 		Type:      OnPrivateFriendOnlineApp,
 		Private:   p,
 		IsPrivate: true,
-		User:      &User{Name: username},
+		User:      &models.User{Name: username},
 	}
 	p.App.dispatchEvent(event)
 }
@@ -1003,7 +1005,7 @@ func (p *Private) eventFriendOffline(data string) {
 		Type:      OnPrivateFriendOffline,
 		Private:   p,
 		IsPrivate: true,
-		User:      &User{Name: username},
+		User:      &models.User{Name: username},
 	}
 	p.App.dispatchEvent(event)
 }
@@ -1018,14 +1020,14 @@ func (p *Private) eventIdleUpdate(data string) {
 			Type:      OnPrivateFriendActive,
 			Private:   p,
 			IsPrivate: true,
-			User:      &User{Name: username},
+			User:      &models.User{Name: username},
 		}
 	} else {
 		event = &Event{
 			Type:      OnPrivateFriendIdle,
 			Private:   p,
 			IsPrivate: true,
-			User:      &User{Name: username},
+			User:      &models.User{Name: username},
 		}
 	}
 	p.App.dispatchEvent(event)
@@ -1037,7 +1039,7 @@ func (p *Private) eventUpdateUserProfile(data string) {
 		Type:      OnUpdateUserProfile,
 		Private:   p,
 		IsPrivate: true,
-		User:      &User{Name: data},
+		User:      &models.User{Name: data},
 	}
 	p.App.dispatchEvent(event)
 }

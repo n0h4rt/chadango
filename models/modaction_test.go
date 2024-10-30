@@ -1,4 +1,4 @@
-package chadango
+package models
 
 import (
 	"testing"
