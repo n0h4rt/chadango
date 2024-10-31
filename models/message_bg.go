@@ -9,14 +9,14 @@ import (
 
 // MessageBackground represents the message background information of a user.
 type MessageBackground struct {
-	Align        string `xml:"align,attr"`  // Background image alignment
-	Alpha        int    `xml:"bgalp,attr"`  // Background color transparency
-	Color        string `xml:"bgc,attr"`    // Background color
-	HasRecording int64  `xml:"hasrec,attr"` // Media recording timestamp (ms)
-	ImageAlpha   int    `xml:"ialp,attr"`   // Background image transparency
-	IsVid        bool   `xml:"isvid,attr"`  // Is the Media a video?
-	Tile         bool   `xml:"tile,attr"`   // Tile image?
-	UseImage     bool   `xml:"useimg,attr"` // Use image?
+	Align        string  `xml:"align,attr"`  // Background image alignment
+	Alpha        float64 `xml:"bgalp,attr"`  // Background color transparency
+	Color        string  `xml:"bgc,attr"`    // Background color
+	HasRecording int64   `xml:"hasrec,attr"` // Media recording timestamp (ms)
+	ImageAlpha   float64 `xml:"ialp,attr"`   // Background image transparency
+	IsVid        bool    `xml:"isvid,attr"`  // Is the Media a video?
+	Tile         bool    `xml:"tile,attr"`   // Tile image?
+	UseImage     bool    `xml:"useimg,attr"` // Use image?
 
 	Username string
 }
@@ -36,10 +36,10 @@ func (mb *MessageBackground) GetForm() url.Values {
 
 	form := url.Values{
 		"align":  {mb.Align},
-		"bgalp":  {strconv.Itoa(mb.Alpha)},
+		"bgalp":  {strconv.FormatFloat(mb.Alpha, 'f', 1, 64)},
 		"bgc":    {mb.Color},
 		"hasrec": {strconv.FormatInt(mb.HasRecording, 10)},
-		"ialp":   {strconv.Itoa(mb.ImageAlpha)},
+		"ialp":   {strconv.FormatFloat(mb.ImageAlpha, 'f', 1, 64)},
 		"isvid":  {utils.BoolZeroOrOne(mb.IsVid)},
 		"tile":   {utils.BoolZeroOrOne(mb.Tile)},
 		"useimg": {utils.BoolZeroOrOne(mb.UseImage)},
