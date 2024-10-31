@@ -157,7 +157,7 @@ func (g *Group) connect() (err error) {
 	if frame, err = g.ws.Recv(); err != nil {
 		return
 	}
-	if head, _, ok := strings.Cut(frame, ":"); ok && head != "ok" {
+	if head, _, _ := strings.Cut(frame, ":"); head != "ok" {
 		return ErrLoginFailed
 	}
 	g.events <- frame
