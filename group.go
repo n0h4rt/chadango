@@ -790,6 +790,9 @@ func (g *Group) GetBanList(offset time.Time, ammount int) (banList []models.Bloc
 		head, data, _ := strings.Cut(frame, ":")
 		switch head {
 		case "blocklist":
+			if data == "" {
+				return false
+			}
 			var fields []string
 			var target string
 			var t time.Time
@@ -918,6 +921,9 @@ func (g *Group) GetUnbanList(offset time.Time, ammount int) (unbanList []models.
 		head, data, _ := strings.Cut(frame, ":")
 		switch head {
 		case "unblocklist":
+			if data == "" {
+				return false
+			}
 			var fields []string
 			var target string
 			var t time.Time
