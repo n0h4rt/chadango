@@ -19,7 +19,12 @@ import (
 // connecting to groups and private messages, and handling events and errors.
 // The application also manages data persistence and provides access to the public and private APIs.
 type Application struct {
-	Config        *Config                 // Config holds the configuration for the pplication.
+	username      string
+	password      string
+	isDebug       bool
+	enablePM      bool
+	pmSessionID   string
+	Config        *Config                 // Config holds the configuration for the application.
 	persistence   Persistence             // Persistence manages data persistence for the application.
 	Private       Private                 // Private represents the private chat functionality of the application.
 	Groups        SyncMap[string, *Group] // Groups stores the groups the application is connected to.
@@ -403,4 +408,17 @@ func New(config *Config) *Application {
 		errorHandlers: []Handler{},
 		Config:        config,
 	}
+}
+
+// NewApp creates a new [Application] instance.
+func NewApp(username, password string, options ...Option) *Application {
+	a := &Application{
+		username: username,
+		password: password,
+	}
+	for _, option := range options {
+		option(a)
+	}
+
+	return a
 }

@@ -6,3 +6,5 @@
 *.code-workspace
 **.vscode/
 *.gone
+**protos/
+/gcm/
